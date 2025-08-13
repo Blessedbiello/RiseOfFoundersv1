@@ -1,0 +1,1033 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  walletAddress String   @unique
+  email         String?  @unique
+  githubId      String?  @unique
+  githubUsername String?
+  displayName   String
+  avatarUrl     String?
+  bio           String?
+  role          UserRole @default(PLAYER)
+  
+  // Game Progress
+  xpTotal         Int @default(0)
+  reputationScore Int @default(0)
+  skillScores     Json @default("{}")
+  isVerified      Boolean @default(false)
+  lastActive      DateTime @default(now())
+  
+  // Settings
+  preferences     Json @default("{}")
+  metadata        Json @default("{}")
+  
+  // Relationships
+  teamMembers     TeamMember[]
+  submissions     Submission[]
+  reviews         PeerReview[] @relation("ReviewerReviews")
+  receivedReviews PeerReview[] @relation("SubmitterReviews")
+  challenges      Challenge[] @relation("ChallengerChallenges")
+  defendedChallenges Challenge[] @relation("DefenderChallenges")
+  mentorProfile   Mentor?
+  mentorSessions  MentorSession[] @relation("MentorSessions")
+  menteeSessionsAsUser  MentorSession[] @relation("MenteeUserSessions")
+  sponsorProfile  Sponsor?
+  questSubmissions QuestSubmission[]
+  badges          UserBadge[]
+  traits          UserTrait[]
+  nodeProgress    NodeProgress[]
+  territories     Territory[]
+  auditLogs       AuditLog[]
+  notifications   Notification[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Team {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  description   String?
+  emblemUrl     String?
+  foundedAt     DateTime @default(now())
+  isActive      Boolean  @default(true)
+  
+  // Wallet & Treasury
+  teamWallet    String?
+  vaultBalance  Int @default(0)
+  
+  // Legal
+  agreementId   String?
+  
+  // Stats
+  totalXp       Int @default(0)
+  memberCount   Int @default(0)
+  completedMissions Int @default(0)
+  territoriesOwned  Int @default(0)
+  
+  // Settings
+  isPublic      Boolean @default(true)
+  autoAcceptInvites Boolean @default(false)
+  maxMembers    Int @default(8)
+  
+  metadata      Json @default("{}")
+  
+  // Relationships
+  members       TeamMember[]
+  agreement     FounderAgreement? @relation(fields: [agreementId], references: [id])
+  submissions   Submission[]
+  challenges    Challenge[] @relation("TeamChallengerChallenges")
+  defendedChallenges Challenge[] @relation("TeamDefenderChallenges")
+  territories   Territory[]
+  invitations   TeamInvitation[]
+  splits        TeamSplit[]
+  quests        TeamQuest[]
+  menteeSessionsAsTeam MentorSession[] @relation("MenteeTeamSessions")
+  questSubmissions QuestSubmission[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id              String   @id @default(cuid())
+  teamId          String
+  userId          String
+  role            TeamRole @default(DEVELOPER)
+  joinedAt        DateTime @default(now())
+  isActive        Boolean  @default(true)
+  equity          Float?
+  contributionScore Int    @default(0)
+  permissions     Json     @default("{}")
+  
+  // Relationships
+  team            Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+model FounderAgreement {
+  id              String   @id @default(cuid())
+  teamId          String
+  version         Int      @default(1)
+  content         String   // Legal document content
+  ipfsHash        String?  // IPFS hash of the document
+  onchainTxHash   String?  // Solana transaction hash
+  
+  // Agreement Terms
+  terms           Json
+  
+  // Signatures
+  signatures      Json @default("[]")
+  isFullySigned   Boolean @default(false)
+  
+  // Status
+  status          AgreementStatus @default(DRAFT)
+  
+  metadata        Json @default("{}")
+  
+  // Relationships
+  teams           Team[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("founder_agreements")
+}
+
+model TeamInvitation {
+  id              String   @id @default(cuid())
+  teamId          String
+  invitedUserId   String
+  invitedByUserId String
+  proposedRole    TeamRole @default(DEVELOPER)
+  proposedEquity  Float?
+  message         String?
+  status          InvitationStatus @default(PENDING)
+  expiresAt       DateTime
+  
+  // Relationships
+  team            Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedUser     User @relation(fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedBy       User @relation("InvitedByUser", fields: [invitedByUserId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("team_invitations")
+}
+
+model TeamSplit {
+  id              String   @id @default(cuid())
+  teamId          String
+  initiatedByUserId String
+  reason          String
+  status          SplitStatus @default(PROPOSED)
+  
+  // Split terms
+  proposedSplit   Json
+  votes           Json @default("[]")
+  mediatorId      String?
+  
+  // Asset settlement
+  assetDistribution Json @default("[]")
+  finalizedAt     DateTime?
+  
+  // Relationships
+  team            Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  initiatedBy     User @relation("InitiatedSplits", fields: [initiatedByUserId], references: [id])
+  mediator        User? @relation("MediatedSplits", fields: [mediatorId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("team_splits")
+}
+
+model GameMap {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  description     String
+  skillTag        String
+  backgroundImageUrl String?
+  isActive        Boolean  @default(true)
+  order           Int
+  prerequisites   Json     @default("[]")
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  nodes           MapNode[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("game_maps")
+}
+
+model MapNode {
+  id              String   @id @default(cuid())
+  mapId           String
+  title           String
+  description     String
+  position        Json     // {x, y} coordinates
+  difficulty      Difficulty
+  nodeType        NodeType
+  order           Int
+  estimatedTime   Int      // minutes
+  isLocked        Boolean  @default(true)
+  isPvpEnabled    Boolean  @default(false)
+  sponsorId       String?
+  
+  // Requirements
+  prerequisites   Json     @default("[]")
+  artifactRequirements Json @default("[]")
+  
+  // Rewards
+  rewards         Json
+  
+  // Content
+  content         Json
+  
+  // State
+  completionCount Int      @default(0)
+  averageRating   Float    @default(0)
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  map             GameMap @relation(fields: [mapId], references: [id], onDelete: Cascade)
+  sponsor         Sponsor? @relation(fields: [sponsorId], references: [id])
+  missions        Mission[]
+  submissions     Submission[]
+  challenges      Challenge[]
+  territories     Territory[]
+  progress        NodeProgress[]
+  sponsorQuests   SponsorQuest[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("map_nodes")
+}
+
+model Mission {
+  id              String   @id @default(cuid())
+  nodeId          String
+  honeycombMissionId String?
+  name            String
+  description     String
+  objectives      Json     @default("[]")
+  requirements    Json     @default("[]")
+  rewards         Json
+  timeLimit       Int?     // minutes
+  maxAttempts     Int?
+  isActive        Boolean  @default(true)
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  node            MapNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  submissions     Submission[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("missions")
+}
+
+model Submission {
+  id              String   @id @default(cuid())
+  missionId       String
+  submitterType   SubmitterType
+  submitterId     String   // User or Team ID
+  status          SubmissionStatus @default(SUBMITTED)
+  score           Int?
+  maxScore        Int
+  
+  // Artifacts
+  artifacts       Json     @default("[]")
+  
+  // Review
+  reviewerId      String?
+  reviewNotes     String?
+  reviewedAt      DateTime?
+  
+  // Verification
+  verificationResults Json @default("[]")
+  honeycombResult Json?
+  
+  // Attempt tracking
+  attemptNumber   Int      @default(1)
+  timeSpent       Int      @default(0) // seconds
+  
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  mission         Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  submitterUser   User? @relation(fields: [submitterId], references: [id])
+  submitterTeam   Team? @relation(fields: [submitterId], references: [id])
+  reviewer        User? @relation("ReviewerSubmissions", fields: [reviewerId], references: [id])
+  reviews         PeerReview[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("submissions")
+}
+
+model PeerReview {
+  id              String   @id @default(cuid())
+  submissionId    String
+  reviewerId      String
+  score           Int
+  maxScore        Int
+  feedback        Json
+  status          ReviewStatus @default(PENDING)
+  timeSpent       Int      @default(0) // seconds
+  
+  // Relationships
+  submission      Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  reviewer        User @relation("ReviewerReviews", fields: [reviewerId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([submissionId, reviewerId])
+  @@map("peer_reviews")
+}
+
+model Challenge {
+  id              String   @id @default(cuid())
+  nodeId          String
+  challengerId    String
+  defenderId      String
+  challengerType  SubmitterType
+  defenderType    SubmitterType
+  
+  // Challenge details
+  type            ChallengeType
+  stakeAmount     Int?
+  description     String
+  
+  // Status
+  status          ChallengeStatus @default(PENDING)
+  
+  // Timing
+  acceptDeadline  DateTime
+  submissionDeadline DateTime?
+  
+  // Submissions
+  challengerSubmissionId String?
+  defenderSubmissionId   String?
+  
+  // Judging
+  judges          Json     @default("[]")
+  verdict         Json?
+  
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  node            MapNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  challengerUser  User? @relation("ChallengerChallenges", fields: [challengerId], references: [id])
+  defenderUser    User? @relation("DefenderChallenges", fields: [defenderId], references: [id])
+  challengerTeam  Team? @relation("TeamChallengerChallenges", fields: [challengerId], references: [id])
+  defenderTeam    Team? @relation("TeamDefenderChallenges", fields: [defenderId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("challenges")
+}
+
+model Sponsor {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  organizationName String
+  contactEmail    String
+  contactName     String
+  website         String?
+  logoUrl         String?
+  description     String
+  
+  // Blockchain
+  sponsorWallet   String
+  balance         Int      @default(0)
+  
+  // Branding
+  brandColors     Json     @default("{}")
+  brandAssets     Json     @default("{}")
+  
+  // Settings
+  isActive        Boolean  @default(true)
+  tier            SponsorTier @default(BRONZE)
+  
+  // Stats
+  totalQuestsCreated      Int @default(0)
+  totalRewardsDistributed Int @default(0)
+  totalParticipants       Int @default(0)
+  averageCompletion       Float @default(0)
+  
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nodes           MapNode[]
+  quests          SponsorQuest[]
+  submissions     QuestSubmission[]
+  rewards         QuestReward[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sponsors")
+}
+
+model SponsorQuest {
+  id              String   @id @default(cuid())
+  sponsorId       String
+  nodeId          String?  // If attached to existing node
+  
+  // Basic info
+  title           String
+  description     String
+  objectives      Json     @default("[]")
+  
+  // Constraints
+  maxParticipants Int?
+  startDate       DateTime
+  endDate         DateTime
+  isActive        Boolean  @default(true)
+  
+  // Requirements
+  requirements    Json     @default("[]")
+  eligibilityCriteria Json @default("{}")
+  
+  // Rewards
+  rewardPool      Json
+  rewardDistribution Json
+  
+  // Verification
+  verificationMethod VerificationMethod @default(AUTOMATIC)
+  reviewers       Json     @default("[]")
+  
+  // Analytics
+  participantCount Int     @default(0)
+  completionCount Int      @default(0)
+  totalRewardsDistributed Int @default(0)
+  
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  sponsor         Sponsor @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  node            MapNode? @relation(fields: [nodeId], references: [id])
+  submissions     QuestSubmission[]
+  rewards         QuestReward[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sponsor_quests")
+}
+
+model QuestSubmission {
+  id              String   @id @default(cuid())
+  questId         String
+  participantId   String
+  participantType SubmitterType
+  
+  // Submission data
+  artifacts       Json     @default("[]")
+  description     String
+  
+  // Scoring
+  score           Int?
+  maxScore        Int
+  objectiveScores Json     @default("[]")
+  
+  // Review
+  status          SubmissionStatus @default(SUBMITTED)
+  reviewerId      String?
+  reviewNotes     String?
+  reviewedAt      DateTime?
+  
+  // Verification
+  verificationResults Json @default("[]")
+  automatedScore  Int?
+  manualScore     Int?
+  
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  quest           SponsorQuest @relation(fields: [questId], references: [id], onDelete: Cascade)
+  participantUser User? @relation(fields: [participantId], references: [id])
+  participantTeam Team? @relation(fields: [participantId], references: [id])
+  reviewer        User? @relation("QuestReviewer", fields: [reviewerId], references: [id])
+  sponsor         Sponsor @relation(fields: [questId], references: [id])
+  rewards         QuestReward[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("quest_submissions")
+}
+
+model QuestReward {
+  id              String   @id @default(cuid())
+  questId         String
+  submissionId    String
+  recipientId     String
+  recipientType   SubmitterType
+  
+  // Reward details
+  rewardType      RewardType
+  amount          Int?
+  tokenAddress    String?
+  nftId           String?
+  serviceRewardId String?
+  
+  // Distribution
+  status          RewardStatus @default(PENDING)
+  distributionTx  String?
+  claimedAt       DateTime?
+  expiresAt       DateTime?
+  
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  quest           SponsorQuest @relation(fields: [questId], references: [id], onDelete: Cascade)
+  submission      QuestSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  sponsor         Sponsor @relation(fields: [questId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("quest_rewards")
+}
+
+model Mentor {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  
+  // Professional info
+  title           String
+  company         String?
+  bio             String
+  linkedinUrl     String?
+  twitterUrl      String?
+  websiteUrl      String?
+  
+  // Expertise
+  specialties     Json     @default("[]")
+  skillAreas      Json     @default("[]")
+  experienceLevel ExperienceLevel @default(JUNIOR)
+  yearsOfExperience Int
+  
+  // Availability
+  isAvailable     Boolean  @default(true)
+  availableSlots  Json     @default("[]")
+  timezone        String
+  
+  // Pricing
+  hourlyRate      Int
+  currency        Currency @default(USD)
+  acceptsMentorTokens Boolean @default(true)
+  mentorTokenRate Int?
+  
+  // Ratings & Reviews
+  averageRating   Float    @default(0)
+  totalReviews    Int      @default(0)
+  totalSessions   Int      @default(0)
+  responseTime    Int      @default(24) // hours
+  
+  // Settings
+  maxSessionsPerWeek Int   @default(10)
+  sessionDuration Json     @default("[60]")
+  advanceBookingDays Int   @default(7)
+  
+  // Verification
+  isVerified      Boolean  @default(false)
+  verificationBadges Json  @default("[]")
+  
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions        MentorSession[] @relation("MentorSessions")
+  reviews         MentorReview[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("mentors")
+}
+
+model MentorSession {
+  id              String   @id @default(cuid())
+  mentorId        String
+  menteeId        String
+  menteeType      SubmitterType
+  
+  // Session details
+  title           String
+  description     String
+  category        String
+  duration        Int      // minutes
+  scheduledAt     DateTime
+  
+  // Status
+  status          SessionStatus @default(SCHEDULED)
+  
+  // Communication
+  meetingUrl      String?
+  meetingPlatform String   @default("zoom")
+  
+  // Payment
+  cost            Int
+  paymentMethod   PaymentMethod @default(TOKENS)
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentTx       String?
+  
+  // Content
+  agenda          Json     @default("[]")
+  notes           String?
+  resources       Json     @default("[]")
+  actionItems     Json     @default("[]")
+  
+  // Follow-up
+  followUpScheduled DateTime?
+  followUpNotes   String?
+  
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  mentor          Mentor @relation("MentorSessions", fields: [mentorId], references: [id], onDelete: Cascade)
+  menteeUser      User? @relation("MenteeUserSessions", fields: [menteeId], references: [id])
+  menteeTeam      Team? @relation("MenteeTeamSessions", fields: [menteeId], references: [id])
+  review          MentorReview?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("mentor_sessions")
+}
+
+model MentorReview {
+  id              String   @id @default(cuid())
+  sessionId       String   @unique
+  mentorId        String
+  reviewerId      String
+  
+  // Ratings (1-5 scale)
+  overallRating   Int
+  communicationRating Int
+  knowledgeRating Int
+  helpfulnessRating Int
+  professionalism Int
+  
+  // Feedback
+  review          String
+  highlights      Json     @default("[]")
+  improvements    Json     @default("[]")
+  wouldRecommend  Boolean  @default(true)
+  
+  // Session evaluation
+  sessionGoalsMet Boolean  @default(true)
+  valueReceived   String   @default("met")
+  
+  // Visibility
+  isPublic        Boolean  @default(true)
+  isVerified      Boolean  @default(false)
+  
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  session         MentorSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  mentor          Mentor @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  reviewer        User @relation("MentorReviewer", fields: [reviewerId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("mentor_reviews")
+}
+
+model UserBadge {
+  id              String   @id @default(cuid())
+  userId          String
+  name            String
+  description     String
+  imageUrl        String
+  rarity          BadgeRarity @default(COMMON)
+  earnedAt        DateTime @default(now())
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("user_badges")
+}
+
+model UserTrait {
+  id              String   @id @default(cuid())
+  userId          String
+  key             String
+  name            String
+  level           Int      @default(1)
+  maxLevel        Int      @default(7)
+  description     String
+  honeycombTraitId String?
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+  @@map("user_traits")
+}
+
+model NodeProgress {
+  id              String   @id @default(cuid())
+  nodeId          String
+  userId          String
+  status          ProgressStatus @default(LOCKED)
+  score           Int?
+  completedAt     DateTime?
+  attempts        Int      @default(0)
+  timeSpent       Int      @default(0) // seconds
+  lastAttemptAt   DateTime @default(now())
+  
+  // Relationships
+  node            MapNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([nodeId, userId])
+  @@map("node_progress")
+}
+
+model Territory {
+  id              String   @id @default(cuid())
+  nodeId          String
+  controllerId    String
+  controllerType  SubmitterType
+  controlledAt    DateTime @default(now())
+  expiresAt       DateTime?
+  defenseCount    Int      @default(0)
+  metadata        Json     @default("{}")
+  
+  // Relationships
+  node            MapNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  controllerUser  User? @relation(fields: [controllerId], references: [id])
+  controllerTeam  Team? @relation(fields: [controllerId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([nodeId])
+  @@map("territories")
+}
+
+model TeamQuest {
+  id              String   @id @default(cuid())
+  teamId          String
+  nodeId          String
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  status          QuestStatus @default(ACTIVE)
+  progress        Json     @default("{}")
+  contributions   Json     @default("[]")
+  
+  // Relationships
+  team            Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("team_quests")
+}
+
+model Notification {
+  id              String   @id @default(cuid())
+  userId          String
+  type            NotificationType
+  title           String
+  message         String
+  data            Json     @default("{}")
+  isRead          Boolean  @default(false)
+  
+  // Relationships
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  eventType       String
+  resourceId      String
+  actorId         String?
+  metadata        Json     @default("{}")
+  ipAddress       String?
+  userAgent       String?
+  
+  // Relationships
+  actor           User? @relation(fields: [actorId], references: [id])
+  
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+// Enums
+enum UserRole {
+  PLAYER
+  MENTOR
+  MODERATOR
+  ADMIN
+  SPONSOR
+}
+
+enum TeamRole {
+  FOUNDER
+  CO_FOUNDER
+  DEVELOPER
+  DESIGNER
+  MARKETER
+  ADVISOR
+}
+
+enum Difficulty {
+  BRONZE
+  SILVER
+  GOLD
+  BOSS
+}
+
+enum NodeType {
+  QUIZ
+  CODE
+  DEPLOY
+  CONTENT
+  SOCIAL
+  BOSS
+  SPONSORED
+}
+
+enum SubmitterType {
+  USER
+  TEAM
+}
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
+enum ReviewStatus {
+  PENDING
+  COMPLETED
+  DISPUTED
+}
+
+enum ChallengeType {
+  TERRITORY
+  SKILL
+  COLLABORATION
+}
+
+enum ChallengeStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  IN_PROGRESS
+  JUDGING
+  COMPLETED
+  CANCELLED
+}
+
+enum ProgressStatus {
+  LOCKED
+  AVAILABLE
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum AgreementStatus {
+  DRAFT
+  PENDING_SIGNATURES
+  ACTIVE
+  AMENDED
+  TERMINATED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum SplitStatus {
+  PROPOSED
+  VOTING
+  MEDIATION
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum SponsorTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum VerificationMethod {
+  AUTOMATIC
+  MANUAL
+  HYBRID
+}
+
+enum RewardType {
+  TOKEN
+  NFT
+  SERVICE
+  PHYSICAL
+}
+
+enum RewardStatus {
+  PENDING
+  DISTRIBUTED
+  CLAIMED
+  EXPIRED
+}
+
+enum ExperienceLevel {
+  JUNIOR
+  MID
+  SENIOR
+  EXPERT
+}
+
+enum Currency {
+  USD
+  USDC
+  SOL
+}
+
+enum SessionStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentMethod {
+  TOKENS
+  CRYPTO
+  FIAT
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+enum BadgeRarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+enum QuestStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+enum NotificationType {
+  MISSION_COMPLETED
+  TEAM_INVITATION
+  CHALLENGE_RECEIVED
+  MENTOR_SESSION
+  SPONSOR_QUEST
+  LEVEL_UP
+  BADGE_EARNED
+  TERRITORY_LOST
+}
