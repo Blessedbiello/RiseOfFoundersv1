@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { prisma } from '../config/database';
-import { generateToken, verifyWalletSignature } from '../middleware/auth';
+import { generateToken, verifyWalletSignature, AuthenticatedRequest, validateAuth } from '../middleware/auth';
 import { ApiError, asyncHandler } from '../middleware/errorHandler';
 import { UserRole } from '@prisma/client';
 
-const router = Router();
+const router: any = Router();
 
 // Validation rules
 const walletAuthValidation = [
@@ -152,7 +152,13 @@ router.post('/wallet', walletAuthValidation, asyncHandler(async (req: Request, r
     });
   }
   
-  const token = generateToken(user);
+  const token = generateToken({
+    id: user.id,
+    walletAddress: user.walletAddress,
+    role: user.role,
+    email: user.email || undefined,
+    isVerified: user.isVerified,
+  });
   
   res.json({
     success: true,
@@ -237,7 +243,13 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       throw new ApiError('User not found', 404);
     }
     
-    const newToken = generateToken(user);
+    const newToken = generateToken({
+      id: user.id,
+      walletAddress: user.walletAddress,
+      role: user.role,
+      email: user.email || undefined,
+      isVerified: user.isVerified,
+    });
     
     res.json({
       success: true,
@@ -286,6 +298,62 @@ router.get('/verify', asyncHandler(async (req: Request, res: Response) => {
     });
   } catch (error) {
     throw new ApiError('Invalid token', 401);
+  }
+}));
+
+// PUT /auth/profile - Update user profile
+router.put('/profile', validateAuth as any, profileUpdateValidation, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError('Validation failed', 400, errors.array());
+  }
+
+  const userId = req.user!.id;
+  const { displayName, email, bio, avatarUrl } = req.body;
+
+  try {
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(displayName && { displayName }),
+        ...(email && { email }),
+        ...(bio && { bio }),
+        ...(avatarUrl && { avatarUrl }),
+        updatedAt: new Date(),
+      },
+      select: {
+        id: true,
+        walletAddress: true,
+        displayName: true,
+        email: true,
+        bio: true,
+        avatarUrl: true,
+        role: true,
+        xpTotal: true,
+        reputationScore: true,
+        isVerified: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: { 
+        user: {
+          ...updatedUser,
+          name: updatedUser.displayName, // Map displayName to name for frontend compatibility
+          profilePicture: updatedUser.avatarUrl, // Map avatarUrl to profilePicture for frontend compatibility
+          createdAt: updatedUser.createdAt.toISOString(),
+          updatedAt: updatedUser.updatedAt.toISOString(),
+        }
+      },
+    });
+  } catch (error: any) {
+    if (error.code === 'P2002') {
+      throw new ApiError('Email already exists', 409);
+    }
+    throw new ApiError('Failed to update profile', 500);
   }
 }));
 

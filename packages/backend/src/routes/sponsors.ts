@@ -4,7 +4,7 @@ import { prisma } from '../config/database';
 import { AuthenticatedRequest, requireSponsor } from '../middleware/auth';
 import { ApiError, asyncHandler } from '../middleware/errorHandler';
 
-const router = Router();
+const router: any = Router();
 
 // GET /sponsors/quests - Get all sponsor quests
 router.get('/quests', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -32,7 +32,7 @@ router.get('/quests', asyncHandler(async (req: AuthenticatedRequest, res: Respon
 }));
 
 // POST /sponsors/quests - Create sponsor quest (sponsors only)
-router.post('/quests', requireSponsor, [
+router.post('/quests', requireSponsor as any, [
   body('title').isLength({ min: 5, max: 100 }),
   body('description').isLength({ min: 20, max: 2000 }),
   body('startDate').isISO8601(),

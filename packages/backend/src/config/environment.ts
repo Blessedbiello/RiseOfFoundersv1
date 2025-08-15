@@ -7,16 +7,21 @@ dotenv.config();
 // Environment validation schema
 const envSchema = z.object({
   // Server
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.string().transform(Number).default('3001'),
+  NODE_ENV: z.enum(['development', 'production', 'test', 'staging']).default('development'),
+  PORT: z.string().regex(/^\d+$/).transform(Number).default('8000'),
+  API_VERSION: z.string().default('v1'),
   
   // Database
-  DATABASE_URL: z.string(),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  DATABASE_POOL_SIZE: z.string().regex(/^\d+$/).transform(Number).default('10'),
+  DATABASE_TIMEOUT_MS: z.string().regex(/^\d+$/).transform(Number).default('5000'),
   
   // Security
-  JWT_SECRET: z.string(),
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_EXPIRE_TIME: z.string().default('7d'),
-  BCRYPT_ROUNDS: z.string().transform(Number).default('12'),
+  BCRYPT_ROUNDS: z.string().regex(/^\d+$/).transform(Number).default('12'),
+  SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
+  ENCRYPTION_KEY: z.string().length(32, 'ENCRYPTION_KEY must be exactly 32 characters'),
   
   // Solana
   SOLANA_RPC_URL: z.string().default('https://api.devnet.solana.com'),
@@ -54,9 +59,12 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.string().transform(Number).default('900000'),
   RATE_LIMIT_MAX_REQUESTS: z.string().transform(Number).default('100'),
   
-  // CORS
-  FRONTEND_URL: z.string().default('http://localhost:3000'),
+  // CORS and Origins
+  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
   ALLOWED_ORIGINS: z.string().default('http://localhost:3000,http://localhost:3001'),
+  TRUSTED_PROXIES: z.string().default(''),
+  SECURE_COOKIES: z.string().transform(val => val === 'true').default('false'),
+  COOKIE_DOMAIN: z.string().optional(),
   
   // Webhooks
   DISCORD_WEBHOOK_URL: z.string().optional(),

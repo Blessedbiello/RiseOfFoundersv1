@@ -345,6 +345,19 @@ class HoneycombBadgeService {
   getBadgeDefinitions(): BadgeDefinition[] {
     return this.badgeDefinitions;
   }
+
+  /**
+   * Get user's earned badges
+   */
+  async getUserBadges(userId: string): Promise<any[]> {
+    try {
+      // Mock implementation - would query from database and Honeycomb
+      return [];
+    } catch (error) {
+      console.error('Failed to get user badges:', error);
+      return [];
+    }
+  }
 }
 
 export const honeycombBadgeService = new HoneycombBadgeService();

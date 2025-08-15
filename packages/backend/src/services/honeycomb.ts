@@ -1,7 +1,5 @@
-// Re-export the real Honeycomb services
-export { 
-  honeycombService,
-  honeycombMissionService,
-  honeycombBadgeService,
-  honeycombProfileService,
-} from './honeycomb';
+// Export Honeycomb services
+export { honeycombService } from './honeycomb/client';
+export { honeycombMissionService } from './honeycomb/missions';
+export { honeycombBadgeService } from './honeycomb/badges';
+export { honeycombProfileService } from './honeycomb/profile';

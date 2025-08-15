@@ -4,9 +4,12 @@ import { HONEYCOMB_MISSIONS, HONEYCOMB_TRAITS } from '@rise-of-founders/shared';
 
 interface MissionCompletionData {
   missionId: string;
-  userId: string;
-  artifacts: any[];
+  submitterId: string;
+  submitterType: string;
+  artifacts?: any[];
   submissionId: string;
+  artifactUrl?: string;
+  artifactType?: string;
 }
 
 interface MissionReward {
@@ -78,7 +81,7 @@ class HoneycombMissionService {
     try {
       // Get user wallet address
       const user = await prisma.user.findUnique({
-        where: { id: data.userId },
+        where: { id: data.submitterId },
         select: { walletAddress: true, xpTotal: true, skillScores: true },
       });
 
@@ -107,7 +110,7 @@ class HoneycombMissionService {
       const rewards = this.calculateMissionRewards(mission, user);
 
       // Update user progress in database
-      await this.updateUserProgress(data.userId, rewards);
+      await this.updateUserProgress(data.submitterId, rewards);
 
       // Update submission with Honeycomb result
       await prisma.submission.update({
@@ -118,7 +121,7 @@ class HoneycombMissionService {
         },
       });
 
-      console.log(`🎉 Mission ${data.missionId} completed for user ${data.userId}`);
+      console.log(`🎉 Mission ${data.missionId} completed for user ${data.submitterId}`);
 
       return {
         success: true,
@@ -163,7 +166,7 @@ class HoneycombMissionService {
     // Skill-specific XP
     if (node.rewards?.skillPoints) {
       Object.entries(node.rewards.skillPoints).forEach(([skill, points]) => {
-        if (points > 0) {
+        if ((points as number) > 0) {
           rewards.push({
             type: 'trait_xp',
             traitKey: skill,

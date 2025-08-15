@@ -10,6 +10,8 @@ export interface AuthenticatedRequest extends Request {
     walletAddress: string;
     role: UserRole;
     email?: string;
+    isVerified: boolean;
+    subscription?: string;
   };
 }
 
@@ -46,6 +48,7 @@ export const validateAuth = async (
           role: true,
           email: true,
           lastActive: true,
+          isVerified: true,
         },
       });
       
@@ -66,6 +69,8 @@ export const validateAuth = async (
         walletAddress: user.walletAddress,
         role: user.role,
         email: user.email || undefined,
+        isVerified: user.isVerified || false,
+        subscription: undefined,
       };
       
       next();
@@ -133,17 +138,22 @@ export const generateToken = (user: {
   walletAddress: string;
   role: UserRole;
   email?: string;
+  isVerified?: boolean;
 }): string => {
-  return jwt.sign(
-    {
-      userId: user.id,
-      walletAddress: user.walletAddress,
-      role: user.role,
-      email: user.email,
-    },
-    config.JWT_SECRET,
-    { expiresIn: config.JWT_EXPIRE_TIME }
-  );
+  const payload = {
+    userId: user.id,
+    walletAddress: user.walletAddress,
+    role: user.role,
+    email: user.email,
+    isVerified: user.isVerified || false,
+  };
+  
+  const secret = config.JWT_SECRET;
+  const options = { 
+    expiresIn: config.JWT_EXPIRE_TIME
+  };
+  
+  return jwt.sign(payload, secret, options as any);
 };
 
 export const verifyWalletSignature = (

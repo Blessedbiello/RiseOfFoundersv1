@@ -4,7 +4,7 @@ import { prisma } from '../config/database';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { ApiError, asyncHandler } from '../middleware/errorHandler';
 
-const router = Router();
+const router: any = Router();
 
 // GET /game/maps - Get all game maps
 router.get('/maps', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -50,7 +50,18 @@ router.get('/maps/:id', [
     include: {
       nodes: {
         include: {
-          missions: true,
+          missions: {
+            include: {
+              submissions: {
+                where: { 
+                  submitterType: 'USER',
+                  submitterId: req.user!.id,
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+              }
+            }
+          },
           territories: {
             include: {
               controllerUser: {
@@ -63,14 +74,6 @@ router.get('/maps/:id', [
           },
           progress: {
             where: { userId: req.user!.id },
-          },
-          submissions: {
-            where: { 
-              submitterType: 'USER',
-              submitterId: req.user!.id,
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 1,
           },
         },
         orderBy: { order: 'asc' },
@@ -102,6 +105,24 @@ router.get('/nodes/:id', [
       },
       missions: {
         where: { isActive: true },
+        include: {
+          submissions: {
+            where: { 
+              submitterType: 'USER',
+              submitterId: req.user!.id,
+            },
+            orderBy: { createdAt: 'desc' },
+            include: {
+              reviews: {
+                include: {
+                  reviewer: {
+                    select: { id: true, displayName: true, avatarUrl: true },
+                  },
+                },
+              },
+            },
+          }
+        }
       },
       territories: {
         include: {
@@ -115,22 +136,6 @@ router.get('/nodes/:id', [
       },
       progress: {
         where: { userId: req.user!.id },
-      },
-      submissions: {
-        where: { 
-          submitterType: 'USER',
-          submitterId: req.user!.id,
-        },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          reviews: {
-            include: {
-              reviewer: {
-                select: { id: true, displayName: true, avatarUrl: true },
-              },
-            },
-          },
-        },
       },
       challenges: {
         where: {

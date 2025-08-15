@@ -1,4 +1,4 @@
-import { createEdgeClient, EdgeClient } from '@honeycomb-protocol/edge-client';
+import { createEdgeClient } from '@honeycomb-protocol/edge-client';
 import { PublicKey, Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { honeycombConfig, isDevelopment } from '../../config/environment';
@@ -56,7 +56,7 @@ interface HoneycombMissionData {
 }
 
 class HoneycombService {
-  private client: EdgeClient;
+  private client: any;
   private isInitialized = false;
   private projectPublicKey?: PublicKey;
   private projectKeypair?: Keypair;
@@ -64,12 +64,12 @@ class HoneycombService {
   constructor() {
     console.log('🍯 Initializing Honeycomb Protocol Edge Client...');
     
-    this.client = createEdgeClient({
-      url: honeycombConfig.environment === 'development' 
+    this.client = createEdgeClient(
+      honeycombConfig.environment === 'development' 
         ? 'https://edge.test.honeycombprotocol.com/'
         : 'https://edge.honeycombprotocol.com/', // Production URL when available
-      debug: isDevelopment,
-    });
+      isDevelopment
+    );
   }
 
   async initialize(): Promise<void> {
@@ -357,6 +357,36 @@ class HoneycombService {
     return {
       publicKey: this.projectPublicKey?.toString() || '',
       isInitialized: this.isInitialized,
+    };
+  }
+
+  /**
+   * Get Honeycomb service status
+   */
+  async getStatus(): Promise<{
+    isInitialized: boolean;
+    projectId?: string;
+    environment: string;
+  }> {
+    return {
+      isInitialized: this.isInitialized,
+      projectId: this.projectPublicKey?.toString(),
+      environment: honeycombConfig.environment
+    };
+  }
+
+  /**
+   * Create or update project
+   */
+  async createOrUpdateProject(data: { name: string; description: string }): Promise<any> {
+    await this.initialize();
+    
+    // Mock implementation - would interact with actual Honeycomb API
+    return {
+      id: this.projectPublicKey?.toString() || 'mock_project_id',
+      name: data.name,
+      description: data.description,
+      created: new Date().toISOString()
     };
   }
 }

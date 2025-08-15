@@ -4,7 +4,7 @@ import { prisma } from '../config/database';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { ApiError, asyncHandler } from '../middleware/errorHandler';
 
-const router = Router();
+const router: any = Router();
 
 // GET /users/profile - Get current user profile
 router.get('/profile', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -45,7 +45,7 @@ router.get('/profile', asyncHandler(async (req: AuthenticatedRequest, res: Respo
               id: true,
               title: true,
               difficulty: true,
-              xpReward: true,
+              rewards: true,
             },
           },
         },
@@ -59,7 +59,10 @@ router.get('/profile', asyncHandler(async (req: AuthenticatedRequest, res: Respo
 
   // Calculate user stats
   const completedMissions = user.nodeProgress.length;
-  const totalEarnings = user.nodeProgress.reduce((sum, progress) => sum + (progress.node as any).xpReward || 0, 0);
+  const totalEarnings = user.nodeProgress.reduce((sum: number, progress: any) => {
+    const rewards = progress.node?.rewards as any;
+    return sum + (rewards?.xp || 0);
+  }, 0);
   
   const stats = {
     missionsCompleted: completedMissions,

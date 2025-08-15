@@ -16,6 +16,7 @@ model User {
   email         String?  @unique
   githubId      String?  @unique
   githubUsername String?
+  honeycombUserId String? @unique
   displayName   String
   avatarUrl     String?
   bio           String?
@@ -34,20 +35,39 @@ model User {
   
   // Relationships
   teamMembers     TeamMember[]
-  submissions     Submission[]
+  
+  // Mission related
+  submissions     Submission[] @relation("UserSubmissions")
   reviews         PeerReview[] @relation("ReviewerReviews")
-  receivedReviews PeerReview[] @relation("SubmitterReviews")
-  challenges      Challenge[] @relation("ChallengerChallenges")
-  defendedChallenges Challenge[] @relation("DefenderChallenges")
+  reviewerSubmissions Submission[] @relation("ReviewerSubmissions")
+  
+  // Challenge related
+  challengerChallenges Challenge[] @relation("ChallengerChallenges")
+  defenderChallenges Challenge[] @relation("DefenderChallenges")
+  
+  // Mentor related
   mentorProfile   Mentor?
-  mentorSessions  MentorSession[] @relation("MentorSessions")
-  menteeSessionsAsUser  MentorSession[] @relation("MenteeUserSessions")
+  menteeUserSessions MentorSession[] @relation("MenteeUserSessions")
+  mentorReviews   MentorReview[] @relation("MentorReviewer")
+  
+  // Sponsor related
   sponsorProfile  Sponsor?
-  questSubmissions QuestSubmission[]
+  questSubmissions QuestSubmission[] @relation("UserQuestSubmissions")
+  questReviews    QuestSubmission[] @relation("QuestReviewer")
+  
+  // Team related
+  teamInvitations TeamInvitation[] @relation("InvitedUser")
+  sentInvitations TeamInvitation[] @relation("InvitedByUser")
+  initiatedSplits TeamSplit[] @relation("InitiatedSplits")
+  mediatedSplits  TeamSplit[] @relation("MediatedSplits")
+  
+  // Progress
   badges          UserBadge[]
   traits          UserTrait[]
   nodeProgress    NodeProgress[]
-  territories     Territory[]
+  territories     Territory[] @relation("UserTerritories")
+  
+  // System
   auditLogs       AuditLog[]
   notifications   Notification[]
   
@@ -88,15 +108,21 @@ model Team {
   // Relationships
   members       TeamMember[]
   agreement     FounderAgreement? @relation(fields: [agreementId], references: [id])
-  submissions   Submission[]
-  challenges    Challenge[] @relation("TeamChallengerChallenges")
-  defendedChallenges Challenge[] @relation("TeamDefenderChallenges")
-  territories   Territory[]
+  
+  // Mission related
+  submissions   Submission[] @relation("TeamSubmissions")
+  
+  // Challenge related
+  challengerChallenges Challenge[] @relation("TeamChallengerChallenges")
+  defenderChallenges Challenge[] @relation("TeamDefenderChallenges")
+  
+  // Other relationships
+  territories   Territory[] @relation("TeamTerritories")
   invitations   TeamInvitation[]
   splits        TeamSplit[]
   quests        TeamQuest[]
-  menteeSessionsAsTeam MentorSession[] @relation("MenteeTeamSessions")
-  questSubmissions QuestSubmission[]
+  menteeTeamSessions MentorSession[] @relation("MenteeTeamSessions")
+  questSubmissions QuestSubmission[] @relation("TeamQuestSubmissions")
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -168,7 +194,7 @@ model TeamInvitation {
   
   // Relationships
   team            Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  invitedUser     User @relation(fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedUser     User @relation("InvitedUser", fields: [invitedUserId], references: [id], onDelete: Cascade)
   invitedBy       User @relation("InvitedByUser", fields: [invitedByUserId], references: [id])
   
   createdAt DateTime @default(now())
@@ -257,7 +283,6 @@ model MapNode {
   map             GameMap @relation(fields: [mapId], references: [id], onDelete: Cascade)
   sponsor         Sponsor? @relation(fields: [sponsorId], references: [id])
   missions        Mission[]
-  submissions     Submission[]
   challenges      Challenge[]
   territories     Territory[]
   progress        NodeProgress[]
@@ -322,8 +347,8 @@ model Submission {
   
   // Relationships
   mission         Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
-  submitterUser   User? @relation(fields: [submitterId], references: [id])
-  submitterTeam   Team? @relation(fields: [submitterId], references: [id])
+  submitterUser   User? @relation("UserSubmissions", fields: [submitterId], references: [id], map: "submissions_submitter_user_fkey")
+  submitterTeam   Team? @relation("TeamSubmissions", fields: [submitterId], references: [id], map: "submissions_submitter_team_fkey")
   reviewer        User? @relation("ReviewerSubmissions", fields: [reviewerId], references: [id])
   reviews         PeerReview[]
   
@@ -386,10 +411,10 @@ model Challenge {
   
   // Relationships
   node            MapNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
-  challengerUser  User? @relation("ChallengerChallenges", fields: [challengerId], references: [id])
-  defenderUser    User? @relation("DefenderChallenges", fields: [defenderId], references: [id])
-  challengerTeam  Team? @relation("TeamChallengerChallenges", fields: [challengerId], references: [id])
-  defenderTeam    Team? @relation("TeamDefenderChallenges", fields: [defenderId], references: [id])
+  challengerUser  User? @relation("ChallengerChallenges", fields: [challengerId], references: [id], map: "challenges_challenger_user_fkey")
+  defenderUser    User? @relation("DefenderChallenges", fields: [defenderId], references: [id], map: "challenges_defender_user_fkey")
+  challengerTeam  Team? @relation("TeamChallengerChallenges", fields: [challengerId], references: [id], map: "challenges_challenger_team_fkey")
+  defenderTeam    Team? @relation("TeamDefenderChallenges", fields: [defenderId], references: [id], map: "challenges_defender_team_fkey")
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -431,8 +456,6 @@ model Sponsor {
   user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
   nodes           MapNode[]
   quests          SponsorQuest[]
-  submissions     QuestSubmission[]
-  rewards         QuestReward[]
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -479,7 +502,6 @@ model SponsorQuest {
   sponsor         Sponsor @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
   node            MapNode? @relation(fields: [nodeId], references: [id])
   submissions     QuestSubmission[]
-  rewards         QuestReward[]
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -517,49 +539,14 @@ model QuestSubmission {
   
   // Relationships
   quest           SponsorQuest @relation(fields: [questId], references: [id], onDelete: Cascade)
-  participantUser User? @relation(fields: [participantId], references: [id])
-  participantTeam Team? @relation(fields: [participantId], references: [id])
+  participantUser User? @relation("UserQuestSubmissions", fields: [participantId], references: [id], map: "quest_submissions_participant_user_fkey")
+  participantTeam Team? @relation("TeamQuestSubmissions", fields: [participantId], references: [id], map: "quest_submissions_participant_team_fkey")
   reviewer        User? @relation("QuestReviewer", fields: [reviewerId], references: [id])
-  sponsor         Sponsor @relation(fields: [questId], references: [id])
-  rewards         QuestReward[]
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("quest_submissions")
-}
-
-model QuestReward {
-  id              String   @id @default(cuid())
-  questId         String
-  submissionId    String
-  recipientId     String
-  recipientType   SubmitterType
-  
-  // Reward details
-  rewardType      RewardType
-  amount          Int?
-  tokenAddress    String?
-  nftId           String?
-  serviceRewardId String?
-  
-  // Distribution
-  status          RewardStatus @default(PENDING)
-  distributionTx  String?
-  claimedAt       DateTime?
-  expiresAt       DateTime?
-  
-  metadata        Json     @default("{}")
-  
-  // Relationships
-  quest           SponsorQuest @relation(fields: [questId], references: [id], onDelete: Cascade)
-  submission      QuestSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  sponsor         Sponsor @relation(fields: [questId], references: [id])
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("quest_rewards")
 }
 
 model Mentor {
@@ -659,8 +646,8 @@ model MentorSession {
   
   // Relationships
   mentor          Mentor @relation("MentorSessions", fields: [mentorId], references: [id], onDelete: Cascade)
-  menteeUser      User? @relation("MenteeUserSessions", fields: [menteeId], references: [id])
-  menteeTeam      Team? @relation("MenteeTeamSessions", fields: [menteeId], references: [id])
+  menteeUser      User? @relation("MenteeUserSessions", fields: [menteeId], references: [id], map: "mentor_sessions_mentee_user_fkey")
+  menteeTeam      Team? @relation("MenteeTeamSessions", fields: [menteeId], references: [id], map: "mentor_sessions_mentee_team_fkey")
   review          MentorReview?
   
   createdAt DateTime @default(now())
@@ -780,8 +767,8 @@ model Territory {
   
   // Relationships
   node            MapNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
-  controllerUser  User? @relation(fields: [controllerId], references: [id])
-  controllerTeam  Team? @relation(fields: [controllerId], references: [id])
+  controllerUser  User? @relation("UserTerritories", fields: [controllerId], references: [id], map: "territories_controller_user_fkey")
+  controllerTeam  Team? @relation("TeamTerritories", fields: [controllerId], references: [id], map: "territories_controller_team_fkey")
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

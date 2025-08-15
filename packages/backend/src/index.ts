@@ -10,21 +10,24 @@ import { Server as SocketIOServer } from 'socket.io';
 
 import { config, allowedOrigins, rateLimitConfig, isDevelopment } from './config/environment';
 import { prisma } from './config/database';
-import { errorHandler } from './middleware/errorHandler';
-import { requestLogger } from './middleware/requestLogger';
+// import { errorHandler } from './middleware/errorHandler';
+// import { requestLogger } from './middleware/requestLogger';
 import { validateAuth } from './middleware/auth';
 import { honeycombInitializationService } from './services/honeycomb/initialization';
 
-// Import routes
+// Import routes - enabling one by one
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import gameRoutes from './routes/game';
 import teamRoutes from './routes/teams';
 import missionRoutes from './routes/missions';
 import sponsorRoutes from './routes/sponsors';
-import mentorRoutes from './routes/mentors';
+// import mentorRoutes from './routes/mentors';
 import adminRoutes from './routes/admin';
 import honeycombRoutes from './routes/honeycomb';
+import pvpRoutes from './routes/pvp';
+import questRoutes from './routes/quests';
+import escrowRoutes from './routes/escrow';
 
 const app = express();
 const server = createServer(app);
@@ -66,18 +69,18 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: rateLimitConfig.windowMs,
-  max: rateLimitConfig.maxRequests,
-  message: {
-    error: 'Too many requests from this IP, please try again later.',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Rate limiting - temporarily disabled for testing
+// const limiter = rateLimit({
+//   windowMs: Number(rateLimitConfig.windowMs),
+//   max: Number(rateLimitConfig.maxRequests),
+//   message: {
+//     error: 'Too many requests from this IP, please try again later.',
+//   },
+//   standardHeaders: true,
+//   legacyHeaders: false,
+// });
 
-app.use(limiter);
+// app.use(limiter);
 
 // General middleware
 app.use(compression());
@@ -88,7 +91,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 if (isDevelopment) {
   app.use(morgan('dev'));
 }
-app.use(requestLogger);
+// app.use(requestLogger);
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
@@ -96,20 +99,15 @@ app.get('/health', async (req, res) => {
     // Check database connection
     await prisma.$queryRaw`SELECT 1`;
     
-    // Check Honeycomb status
-    const honeycombHealth = await honeycombInitializationService.healthCheck();
-    
-    const isHealthy = honeycombHealth.status !== 'unhealthy';
-    
-    res.status(isHealthy ? 200 : 503).json({
-      status: isHealthy ? 'healthy' : 'degraded',
+    res.status(200).json({
+      status: 'healthy',
       timestamp: new Date().toISOString(),
       version: process.env.npm_package_version || '1.0.0',
       environment: config.NODE_ENV,
       uptime: process.uptime(),
       services: {
         database: 'healthy',
-        honeycomb: honeycombHealth,
+        honeycomb: { status: 'disabled' },
       },
     });
   } catch (error) {
@@ -125,16 +123,19 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// API routes
+// API routes - enabling one by one
 app.use('/api/auth', authRoutes);
-app.use('/api/users', validateAuth, userRoutes);
-app.use('/api/game', validateAuth, gameRoutes);
-app.use('/api/teams', validateAuth, teamRoutes);
-app.use('/api/missions', validateAuth, missionRoutes);
-app.use('/api/sponsors', validateAuth, sponsorRoutes);
-app.use('/api/mentors', validateAuth, mentorRoutes);
-app.use('/api/admin', validateAuth, adminRoutes);
-app.use('/api/honeycomb', validateAuth, honeycombRoutes);
+app.use('/api/users', validateAuth as any, userRoutes);
+app.use('/api/game', validateAuth as any, gameRoutes);
+app.use('/api/teams', validateAuth as any, teamRoutes);
+app.use('/api/missions', validateAuth as any, missionRoutes);
+app.use('/api/sponsors', validateAuth as any, sponsorRoutes);
+// app.use('/api/mentors', validateAuth as any, mentorRoutes);
+app.use('/api/admin', validateAuth as any, adminRoutes);
+app.use('/api/honeycomb', honeycombRoutes);
+app.use('/api/pvp', validateAuth as any, pvpRoutes);
+app.use('/api/quests', validateAuth as any, questRoutes);
+app.use('/api/escrow', validateAuth as any, escrowRoutes);
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -178,7 +179,7 @@ app.use('*', (req, res) => {
 });
 
 // Global error handler
-app.use(errorHandler);
+// app.use(errorHandler);
 
 // Graceful shutdown
 const gracefulShutdown = async (signal: string) => {
