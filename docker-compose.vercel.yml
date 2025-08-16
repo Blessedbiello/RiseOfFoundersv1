@@ -1,0 +1,45 @@
+services:
+  database:
+    image: postgres:14-alpine
+    container_name: rise-db-vercel
+    environment:
+      POSTGRES_DB: rise_of_founders_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data_vercel:/var/lib/postgresql/data
+    networks:
+      - rise-network
+
+  backend:
+    build:
+      context: packages/backend
+      dockerfile: Dockerfile.simple
+    container_name: rise-backend-vercel
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:test_password@database:5432/rise_of_founders_dev
+      - JWT_SECRET=test_jwt_secret_for_development_32chars
+      - HONEYCOMB_API_KEY=your_honeycomb_api_key
+      - GITHUB_CLIENT_ID=your_github_oauth_client_id
+      - GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+      - SOLANA_RPC_URL=https://api.devnet.solana.com
+      - PORT=3001
+      - FRONTEND_URL=https://your-vercel-app.vercel.app
+      - ALLOWED_ORIGINS=https://your-vercel-app.vercel.app,http://localhost:3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      - database
+    restart: unless-stopped
+    networks:
+      - rise-network
+
+volumes:
+  postgres_data_vercel:
+
+networks:
+  rise-network:
+    driver: bridge

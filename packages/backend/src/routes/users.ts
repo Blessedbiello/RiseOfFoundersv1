@@ -144,6 +144,57 @@ router.get('/:id', [
   });
 }));
 
+// POST /users/add-xp - Add XP to user (for course completion, etc.)
+router.post('/add-xp', [
+  body('amount').isInt({ min: 1, max: 10000 }).withMessage('XP amount must be between 1 and 10000'),
+  body('source').isString().isLength({ min: 1, max: 100 }).withMessage('Source is required'),
+  body('description').optional().isString().isLength({ max: 255 }),
+], asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError('Validation failed', 400);
+  }
+
+  const { amount, source, description } = req.body;
+  const userId = req.user!.id;
+
+  try {
+    // Update user's total XP
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        xpTotal: {
+          increment: amount,
+        },
+      },
+      select: {
+        id: true,
+        displayName: true,
+        xpTotal: true,
+        reputationScore: true,
+        selectedKingdom: true,
+        avatarUrl: true,
+      },
+    });
+
+    // Log the XP addition (could be stored in logs or separate table later)
+    console.log(`User ${userId} earned ${amount} XP from ${source}: ${description || 'Course completion'}`);
+
+    res.json({
+      success: true,
+      data: {
+        user: updatedUser,
+        xpAdded: amount,
+        newTotal: updatedUser.xpTotal,
+      },
+      message: `Successfully added ${amount} XP from ${source}`,
+    });
+  } catch (error: any) {
+    console.error('Failed to add XP:', error);
+    throw new ApiError('Failed to add XP', 500);
+  }
+}));
+
 // GET /users/leaderboard - Get user leaderboard
 router.get('/leaderboard', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { skill, limit = 50, page = 1 } = req.query;

@@ -1,0 +1,75 @@
+services:
+  database:
+    image: postgres:14-alpine
+    container_name: rise-db
+    environment:
+      POSTGRES_DB: rise_of_founders_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rise-network
+
+  backend:
+    image: node:18-alpine
+    container_name: rise-backend
+    working_dir: /app
+    volumes:
+      - ./packages/backend:/app
+      - ./packages/shared:/shared
+      - ./node_modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:test_password@database:5432/rise_of_founders_dev
+      - JWT_SECRET=test_jwt_secret_for_development_32chars
+      - HONEYCOMB_API_KEY=your_honeycomb_api_key
+      - SOLANA_RPC_URL=https://api.devnet.solana.com
+      - PORT=3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      - database
+    networks:
+      - rise-network
+    command: >
+      sh -c "
+        npm install -g pnpm &&
+        pnpm install &&
+        npx prisma migrate deploy &&
+        pnpm dev
+      "
+
+  frontend:
+    image: node:18-alpine
+    container_name: rise-frontend
+    working_dir: /app
+    volumes:
+      - ./packages/frontend:/app
+      - ./packages/shared:/shared
+      - ./node_modules:/app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      - NEXT_PUBLIC_SOLANA_NETWORK=devnet
+      - NEXT_PUBLIC_HONEYCOMB_PROJECT_ID=your-project-id-here
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - rise-network
+    command: >
+      sh -c "
+        npm install -g pnpm &&
+        pnpm install &&
+        pnpm dev
+      "
+
+volumes:
+  postgres_data:
+
+networks:
+  rise-network:
+    driver: bridge
