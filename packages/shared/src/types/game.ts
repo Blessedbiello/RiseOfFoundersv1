@@ -1,4 +1,4 @@
-import { Coordinates, Difficulty, NodeType, Status, Timestamps, Metadata } from './common';
+import { Coordinates, Difficulty, NodeType, Status, Timestamps, Metadata, ValidationRule } from './common';
 
 export interface GameMap extends Timestamps {
   id: string;
@@ -50,11 +50,6 @@ export interface ArtifactRequirement {
   isRequired: boolean;
 }
 
-export interface ValidationRule {
-  type: 'regex' | 'url_accessible' | 'github_ownership' | 'solana_signature' | 'min_length';
-  value: string;
-  errorMessage: string;
-}
 
 export interface NodeRewards {
   xp: number;

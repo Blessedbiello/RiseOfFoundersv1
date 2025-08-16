@@ -1,0 +1,57 @@
+services:
+  database:
+    image: postgres:14-alpine
+    container_name: rise-of-founders-db-demo
+    environment:
+      POSTGRES_DB: rise_of_founders_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test_password
+    volumes:
+      - postgres_data_demo:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Use different port to avoid conflicts
+    restart: unless-stopped
+    networks:
+      - rise-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    container_name: rise-of-founders-backend-demo
+    env_file:
+      - .env.docker
+    ports:
+      - "3001:3001"
+    depends_on:
+      - database
+    restart: unless-stopped
+    networks:
+      - rise-network
+    volumes:
+      - ./uploads:/app/uploads
+    command: sh -c "sleep 10 && npx prisma migrate deploy && npm start"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+        NEXT_PUBLIC_SOLANA_NETWORK: devnet
+        NEXT_PUBLIC_HONEYCOMB_PROJECT_ID: your-project-id-here
+    container_name: rise-of-founders-frontend-demo
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - rise-network
+
+networks:
+  rise-network:
+    driver: bridge
+
+volumes:
+  postgres_data_demo:

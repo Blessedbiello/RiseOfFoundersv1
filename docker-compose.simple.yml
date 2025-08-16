@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: packages/backend
+      dockerfile: Dockerfile.simple
+    container_name: rise-backend-demo
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:test_password@host.docker.internal:5432/rise_of_founders_dev
+      - JWT_SECRET=test_jwt_secret_for_development_32chars
+      - HONEYCOMB_API_KEY=your_honeycomb_api_key
+      - GITHUB_CLIENT_ID=your_github_oauth_client_id
+      - GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+      - SOLANA_RPC_URL=https://api.devnet.solana.com
+      - PORT=3001
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: packages/frontend
+      dockerfile: Dockerfile.simple
+    container_name: rise-frontend-demo
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      - NEXT_PUBLIC_SOLANA_NETWORK=devnet
+      - NEXT_PUBLIC_HONEYCOMB_PROJECT_ID=your-project-id-here
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped

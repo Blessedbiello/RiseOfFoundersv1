@@ -2,12 +2,8 @@
 
 import { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
+import { Toaster } from 'react-hot-toast';
 import { WalletProvider } from './WalletProvider';
-import { ThemeProvider } from './ThemeProvider';
-import { AuthProvider } from './AuthProvider';
-import { GameProvider } from './GameProvider';
-import { SocketProvider } from './SocketProvider';
-import { ToastProvider } from './ToastProvider';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,24 +26,19 @@ interface ProvidersProps {
 export function Providers({ children }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <WalletProvider>
-          <AuthProvider>
-            <GameProvider>
-              <SocketProvider>
-                <ToastProvider>
-                  {children}
-                </ToastProvider>
-              </SocketProvider>
-            </GameProvider>
-          </AuthProvider>
-        </WalletProvider>
-      </ThemeProvider>
+      <WalletProvider>
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: '#363636',
+              color: '#fff',
+            },
+          }}
+        />
+        {children}
+      </WalletProvider>
     </QueryClientProvider>
   );
 }

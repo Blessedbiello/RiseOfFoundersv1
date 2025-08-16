@@ -1,5 +1,5 @@
 import 'express-async-errors';
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -11,6 +11,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { config, allowedOrigins, rateLimitConfig, isDevelopment } from './config/environment';
 import { prisma } from './config/database';
 // import { errorHandler } from './middleware/errorHandler';
+import { asyncHandler } from './middleware/errorHandler';
 // import { requestLogger } from './middleware/requestLogger';
 import { validateAuth } from './middleware/auth';
 import { honeycombInitializationService } from './services/honeycomb/initialization';
@@ -126,6 +127,61 @@ app.get('/health', async (req, res) => {
 // API routes - enabling one by one
 app.use('/api/auth', authRoutes);
 app.use('/api/users', validateAuth as any, userRoutes);
+
+// Public endpoints
+app.get('/api/public/leaderboard', async (req: Request, res: Response) => {
+  try {
+    const { skill, limit = 50, page = 1 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    let orderBy: any = { xpTotal: 'desc' };
+    
+    if (skill && typeof skill === 'string') {
+      orderBy = { xpTotal: 'desc' }; // Fallback to total XP
+    }
+
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        displayName: true,
+        avatarUrl: true,
+        selectedKingdom: true,
+        xpTotal: true,
+        reputationScore: true,
+        skillScores: true,
+        badges: {
+          where: { rarity: { in: ['EPIC', 'LEGENDARY'] } },
+          take: 3,
+        },
+      },
+      orderBy,
+      take: Number(limit),
+      skip,
+    });
+
+    // Add rank to each user
+    const rankedUsers = users.map((user, index) => ({
+      ...user,
+      rank: skip + index + 1,
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        users: rankedUsers,
+        page: Number(page),
+        limit: Number(limit),
+        total: await prisma.user.count(),
+      },
+    });
+  } catch (error) {
+    console.error('Leaderboard error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch leaderboard'
+    });
+  }
+});
 app.use('/api/game', validateAuth as any, gameRoutes);
 app.use('/api/teams', validateAuth as any, teamRoutes);
 app.use('/api/missions', validateAuth as any, missionRoutes);

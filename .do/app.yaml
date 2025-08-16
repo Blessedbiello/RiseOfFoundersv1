@@ -1,0 +1,68 @@
+name: rise-of-founders
+services:
+- name: backend
+  source_dir: packages/backend
+  github:
+    repo: your-username/RiseOfFoundersv1
+    branch: main
+  run_command: npm start
+  build_command: npm run build
+  environment_slug: node-js
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  envs:
+  - key: DATABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+  - key: JWT_SECRET
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+  - key: HONEYCOMB_API_KEY
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+  - key: GITHUB_CLIENT_ID
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+  - key: GITHUB_CLIENT_SECRET
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+  - key: SOLANA_RPC_URL
+    scope: RUN_AND_BUILD_TIME
+    value: https://api.devnet.solana.com
+  - key: NODE_ENV
+    scope: RUN_AND_BUILD_TIME
+    value: production
+  - key: PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "8080"
+  http_port: 8080
+
+- name: frontend
+  source_dir: packages/frontend
+  github:
+    repo: your-username/RiseOfFoundersv1
+    branch: main
+  build_command: npm run build
+  environment_slug: node-js
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  envs:
+  - key: NEXT_PUBLIC_API_URL
+    scope: BUILD_TIME
+    value: ${backend.PUBLIC_URL}
+  - key: NEXT_PUBLIC_SOLANA_NETWORK
+    scope: BUILD_TIME
+    value: devnet
+  - key: NEXT_PUBLIC_HONEYCOMB_PROJECT_ID
+    scope: BUILD_TIME
+    type: SECRET
+  http_port: 3000
+  routes:
+  - path: /
+
+databases:
+- engine: PG
+  name: rise-of-founders-db
+  num_nodes: 1
+  size: basic-xs
+  version: "14"

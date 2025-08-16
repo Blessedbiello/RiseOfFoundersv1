@@ -1,4 +1,4 @@
-import { Timestamps, Metadata } from './common';
+import { Timestamps, Metadata, ValidationRule } from './common';
 
 export interface Sponsor extends Timestamps {
   id: string;
@@ -108,11 +108,6 @@ export interface AutomatedCheck {
   validationRules: ValidationRule[];
 }
 
-export interface ValidationRule {
-  field: string;
-  operator: 'equals' | 'contains' | 'greater_than' | 'less_than' | 'regex';
-  value: any;
-}
 
 export interface QuestRequirement {
   type: 'skill_level' | 'completed_missions' | 'team_size' | 'geographic' | 'custom';

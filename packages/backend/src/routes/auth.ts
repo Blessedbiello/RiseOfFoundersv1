@@ -34,6 +34,10 @@ const profileUpdateValidation = [
     .optional()
     .isLength({ max: 500 })
     .withMessage('Bio must be less than 500 characters'),
+  body('selectedKingdom')
+    .optional()
+    .isIn(['silicon-valley', 'crypto-valley', 'business-strategy', 'product-olympus', 'marketing-multiverse', 'all'])
+    .withMessage('Invalid kingdom selection'),
 ];
 
 // GET /auth/nonce - Get nonce for wallet signature
@@ -140,6 +144,20 @@ router.post('/wallet', walletAuthValidation, asyncHandler(async (req: Request, r
         traits: true,
       },
     });
+
+    // Award first wallet connection mission via Honeycomb
+    try {
+      const { honeycombService } = await import('../services/honeycomb/client');
+      await honeycombService.completeMission('first_wallet_connection', walletAddress);
+      
+      // Add XP for first wallet connection
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { xpTotal: { increment: 25 } },
+      });
+    } catch (error) {
+      console.error('Failed to award first wallet connection mission:', error);
+    }
   } else {
     // Update last active
     user = await prisma.user.update({
@@ -183,42 +201,156 @@ router.post('/wallet', walletAuthValidation, asyncHandler(async (req: Request, r
 }));
 
 // POST /auth/github/connect - Connect GitHub account
-router.post('/github/connect', asyncHandler(async (req: Request, res: Response) => {
-  // This would handle GitHub OAuth flow
-  // For now, return placeholder
+router.post('/github/connect', validateAuth as any, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
+  
+  const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
+  const authUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user:email&state=${state}&redirect_uri=${process.env.GITHUB_REDIRECT_URI}`;
+  
   res.json({
     success: true,
     data: {
-      authUrl: `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user:email,repo:read`,
+      authUrl,
+      state,
     },
   });
 }));
 
 // POST /auth/github/callback - Handle GitHub OAuth callback
 router.post('/github/callback', asyncHandler(async (req: Request, res: Response) => {
-  const { code, userId } = req.body;
+  const { code, state } = req.body;
   
-  if (!code || !userId) {
-    throw new ApiError('Missing authorization code or user ID', 400);
+  if (!code || !state) {
+    throw new ApiError('Missing authorization code or state', 400);
   }
   
-  // Exchange code for access token
-  // This would call GitHub's API to get user info
-  // For now, return placeholder
+  try {
+    // Decode state to get user ID
+    const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+    const { userId } = stateData;
+    
+    // Exchange code for access token
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code,
+      }),
+    });
+    
+    const tokenData = await tokenResponse.json();
+    
+    if (!tokenData.access_token) {
+      throw new ApiError('Failed to get GitHub access token', 400);
+    }
+    
+    // Get GitHub user info
+    const userResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `token ${tokenData.access_token}`,
+        'User-Agent': 'Rise-of-Founders',
+      },
+    });
+    
+    const githubUser = await userResponse.json();
+    
+    if (!githubUser.id) {
+      throw new ApiError('Failed to get GitHub user info', 400);
+    }
+    
+    // Update user with GitHub info
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        githubId: githubUser.id.toString(),
+        githubUsername: githubUser.login,
+        githubAccessToken: tokenData.access_token, // Store encrypted in production
+      },
+    });
+    
+    // Award GitHub verification badge via Honeycomb
+    try {
+      const { honeycombService } = await import('../services/honeycomb/client');
+      await honeycombService.completeMission('github_verification', user.walletAddress, [
+        {
+          type: 'github_profile',
+          username: githubUser.login,
+          id: githubUser.id,
+          verified: true,
+        }
+      ]);
+      
+      // Add XP for GitHub verification
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          xpTotal: { increment: 150 },
+        },
+      });
+    } catch (error) {
+      console.error('Failed to award GitHub verification rewards:', error);
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        githubConnected: true,
+        githubUsername: githubUser.login,
+        githubId: githubUser.id,
+        xpAwarded: 150,
+        badgeEarned: 'GitHub Verification',
+      },
+    });
+  } catch (error: any) {
+    console.error('GitHub OAuth error:', error);
+    throw new ApiError('Failed to connect GitHub account', 500);
+  }
+}));
+
+// GET /auth/github/status - Get GitHub connection status
+router.get('/github/status', validateAuth as any, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
   
-  const user = await prisma.user.update({
+  const user = await prisma.user.findUnique({
     where: { id: userId },
-    data: {
-      githubId: 'placeholder-github-id',
-      githubUsername: 'placeholder-username',
+    select: {
+      githubId: true,
+      githubUsername: true,
     },
   });
   
   res.json({
     success: true,
     data: {
-      githubConnected: true,
-      githubUsername: user.githubUsername,
+      connected: !!(user?.githubId && user?.githubUsername),
+      username: user?.githubUsername || undefined,
+      githubId: user?.githubId || undefined,
+    },
+  });
+}));
+
+// POST /auth/github/disconnect - Disconnect GitHub account
+router.post('/github/disconnect', validateAuth as any, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
+  
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      githubId: null,
+      githubUsername: null,
+      githubAccessToken: null,
+    },
+  });
+  
+  res.json({
+    success: true,
+    data: {
+      githubDisconnected: true,
     },
   });
 }));
@@ -309,7 +441,7 @@ router.put('/profile', validateAuth as any, profileUpdateValidation, asyncHandle
   }
 
   const userId = req.user!.id;
-  const { displayName, email, bio, avatarUrl } = req.body;
+  const { displayName, email, bio, avatarUrl, selectedKingdom } = req.body;
 
   try {
     const updatedUser = await prisma.user.update({
@@ -319,6 +451,7 @@ router.put('/profile', validateAuth as any, profileUpdateValidation, asyncHandle
         ...(email && { email }),
         ...(bio && { bio }),
         ...(avatarUrl && { avatarUrl }),
+        ...(selectedKingdom && { selectedKingdom }),
         updatedAt: new Date(),
       },
       select: {
@@ -328,6 +461,7 @@ router.put('/profile', validateAuth as any, profileUpdateValidation, asyncHandle
         email: true,
         bio: true,
         avatarUrl: true,
+        selectedKingdom: true,
         role: true,
         xpTotal: true,
         reputationScore: true,
@@ -336,6 +470,33 @@ router.put('/profile', validateAuth as any, profileUpdateValidation, asyncHandle
         updatedAt: true,
       },
     });
+
+    // Award missions for profile completions
+    try {
+      const { honeycombService } = await import('../services/honeycomb/client');
+      
+      // Award profile creation mission if this is a significant profile update
+      if (displayName || bio || avatarUrl) {
+        await honeycombService.completeMission('profile_creation', updatedUser.walletAddress);
+        await prisma.user.update({
+          where: { id: userId },
+          data: { xpTotal: { increment: 30 } },
+        });
+      }
+      
+      // Award territory selection mission if kingdom was selected
+      if (selectedKingdom) {
+        await honeycombService.completeMission('territory_selection', updatedUser.walletAddress, [
+          { type: 'kingdom_selection', kingdom: selectedKingdom }
+        ]);
+        await prisma.user.update({
+          where: { id: userId },
+          data: { xpTotal: { increment: 40 } },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to award profile update missions:', error);
+    }
 
     res.json({
       success: true,

@@ -1,10 +1,21 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
-import { Providers } from '@/components/providers/Providers';
-import { cn } from '@/lib/utils';
+import { Providers } from '../components/providers/Providers';
+import { ResponsiveProvider } from '../components/ui/responsive';
+import { cn } from '../lib/utils';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ 
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap'
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap'
+});
 
 export const metadata: Metadata = {
   title: 'Rise of Founders - Gamified Founder Education',
@@ -39,11 +50,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={cn(inter.className, 'min-h-screen bg-background antialiased')}>
-        <Providers>
-          {children}
-        </Providers>
+    <html lang="en" suppressHydrationWarning className={cn(inter.variable, jetbrainsMono.variable)}>
+      <head>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#3b82f6" />
+      </head>
+      <body className={cn(
+        'min-h-screen bg-background font-sans antialiased',
+        'scrollbar-thin selection:bg-primary-200 selection:text-primary-900'
+      )}>
+        <ResponsiveProvider>
+          <Providers>
+            {children}
+          </Providers>
+        </ResponsiveProvider>
       </body>
     </html>
   );

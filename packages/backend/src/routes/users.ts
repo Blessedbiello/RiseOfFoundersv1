@@ -159,6 +159,16 @@ router.post('/add-xp', [
   const userId = req.user!.id;
 
   try {
+    // Get user wallet address for Honeycomb mission
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { walletAddress: true },
+    });
+
+    if (!user) {
+      throw new ApiError('User not found', 404);
+    }
+
     // Update user's total XP
     const updatedUser = await prisma.user.update({
       where: { id: userId },
@@ -176,6 +186,35 @@ router.post('/add-xp', [
         avatarUrl: true,
       },
     });
+
+    // Trigger Honeycomb missions based on source
+    try {
+      const { honeycombService } = await import('../services/honeycomb/client');
+      
+      // Map XP sources to Honeycomb missions
+      const sourceToMission: Record<string, string> = {
+        'solana_course_complete': 'solana_course_complete',
+        'Solana Course - Solana Fundamentals': 'solana_course_module_1',
+        'skill_tree_unlock': 'skill_tree_unlock',
+      };
+
+      const missionId = sourceToMission[source];
+      if (missionId) {
+        await honeycombService.completeMission(missionId, user.walletAddress, [
+          {
+            type: 'xp_award',
+            amount,
+            source,
+            description,
+            timestamp: new Date().toISOString(),
+          }
+        ]);
+        console.log(`🍯 Honeycomb mission ${missionId} completed for user ${userId}`);
+      }
+    } catch (error) {
+      console.error('Failed to trigger Honeycomb mission:', error);
+      // Continue execution - don't fail XP award if Honeycomb fails
+    }
 
     // Log the XP addition (could be stored in logs or separate table later)
     console.log(`User ${userId} earned ${amount} XP from ${source}: ${description || 'Course completion'}`);

@@ -16,10 +16,12 @@ model User {
   email         String?  @unique
   githubId      String?  @unique
   githubUsername String?
+  githubAccessToken String?
   honeycombUserId String? @unique
   displayName   String
   avatarUrl     String?
   bio           String?
+  selectedKingdom String?
   role          UserRole @default(PLAYER)
   
   // Game Progress

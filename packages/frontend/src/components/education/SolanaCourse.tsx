@@ -791,6 +791,21 @@ export const SolanaCourse: React.FC = () => {
           }
           
           setModules(updatedModules);
+          
+          // Check if all modules are completed for course completion bonus
+          const allCompleted = updatedModules.every(m => m.completed);
+          if (allCompleted) {
+            try {
+              // Award additional XP for course completion via Honeycomb mission
+              await addXp({
+                amount: 200,
+                source: 'solana_course_complete',
+                description: 'Completed full Solana fundamentals course - Honeycomb achievement unlocked!'
+              });
+            } catch (error) {
+              console.error('Failed to award course completion bonus:', error);
+            }
+          }
         }
       } catch (error) {
         console.error('Failed to award XP:', error);

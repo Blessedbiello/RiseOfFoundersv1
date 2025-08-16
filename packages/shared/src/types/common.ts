@@ -50,3 +50,10 @@ export interface Timestamps {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface ValidationRule {
+  field: string;
+  type: 'required' | 'format' | 'length' | 'custom';
+  value?: any;
+  message: string;
+}
