@@ -1,0 +1,12 @@
+# Ignore workspace files at root level
+../../pnpm-workspace.yaml
+../../pnpm-lock.yaml
+
+# Ignore other packages
+../backend
+../shared
+
+# Ignore dev files
+.env.local
+.env.development
+node_modules
