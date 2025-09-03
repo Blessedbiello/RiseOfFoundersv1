@@ -25,7 +25,7 @@ const envSchema = z.object({
   
   // Solana
   SOLANA_RPC_URL: z.string().default('https://api.devnet.solana.com'),
-  SOLANA_NETWORK: z.enum(['mainnet-beta', 'devnet', 'testnet', 'localnet']).default('devnet'),
+  SOLANA_NETWORK: z.enum(['mainnet-beta', 'devnet', 'testnet', 'localnet', 'honeynet']).default('devnet'),
   
   // Honeycomb
   HONEYCOMB_API_KEY: z.string(),

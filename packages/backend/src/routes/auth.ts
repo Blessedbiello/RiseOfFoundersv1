@@ -243,7 +243,7 @@ router.post('/github/callback', asyncHandler(async (req: Request, res: Response)
       }),
     });
     
-    const tokenData = await tokenResponse.json();
+    const tokenData: any = await tokenResponse.json();
     
     if (!tokenData.access_token) {
       throw new ApiError('Failed to get GitHub access token', 400);
@@ -257,7 +257,7 @@ router.post('/github/callback', asyncHandler(async (req: Request, res: Response)
       },
     });
     
-    const githubUser = await userResponse.json();
+    const githubUser: any = await userResponse.json();
     
     if (!githubUser.id) {
       throw new ApiError('Failed to get GitHub user info', 400);
@@ -484,8 +484,34 @@ router.put('/profile', validateAuth as any, profileUpdateValidation, asyncHandle
         });
       }
       
-      // Award territory selection mission if kingdom was selected
+      // Award territory selection mission and create character if kingdom was selected
       if (selectedKingdom) {
+        // Check if user already has a character
+        const existingCharacter = await prisma.founderCharacter.findUnique({
+          where: { userId }
+        });
+
+        // If no character exists, create one based on kingdom selection
+        if (!existingCharacter) {
+          try {
+            const { honeycombCharacterService } = await import('../services/honeycomb/characters');
+            
+            await honeycombCharacterService.createFounderCharacter({
+              userId,
+              name: updatedUser.displayName || `Founder_${updatedUser.walletAddress.slice(-8)}`,
+              kingdom: selectedKingdom as any, // Kingdom enum
+              customization: {
+                avatarUrl: updatedUser.avatarUrl || undefined
+              }
+            });
+
+            console.log(`✅ Created character for user ${userId} in kingdom ${selectedKingdom}`);
+          } catch (error) {
+            console.error('Failed to create character during kingdom selection:', error);
+            // Continue without failing the profile update
+          }
+        }
+
         await honeycombService.completeMission('territory_selection', updatedUser.walletAddress, [
           { type: 'kingdom_selection', kingdom: selectedKingdom }
         ]);

@@ -130,10 +130,12 @@ const TerritoryNode: React.FC<TerritoryNodeProps> = ({
     }
   });
 
+  // Calculate emissive color based on territory state
+  const emissive = territory.challengeActive ? '#ff6b6b' : hovered ? '#555555' : '#000000';
+
   const renderGeometry = () => {
     const { geometry, size } = territoryConfig;
     const baseColor = controllerTeam?.color || territoryConfig.color;
-    const emissive = territory.challengeActive ? '#ff6b6b' : hovered ? '#555555' : '#000000';
 
     switch (geometry) {
       case 'box':

@@ -19,17 +19,21 @@ export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
   // Get network from environment
   const network = (process.env.NEXT_PUBLIC_SOLANA_NETWORK as WalletAdapterNetwork) || WalletAdapterNetwork.Devnet;
   
-  // Get RPC endpoint
+  // Get RPC endpoint with Honeynet support
   const endpoint = useMemo(() => {
+    // Check if using Honeynet (Honeycomb testnet)
+    if (process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'honeynet') {
+      return 'https://rpc.honeycombprotocol.com';
+    }
+    
     return process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl(network);
   }, [network]);
 
-  // Configure wallet adapters - Only working ones
+  // Configure wallet adapters
   const wallets = useMemo(
     () => [
+      new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
-      // Phantom often has connection issues in dev - comment out for now
-      // new PhantomWalletAdapter(),
     ],
     []
   );

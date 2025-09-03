@@ -47,9 +47,51 @@ router.post('/auth/verify', [
 
   const { walletAddress, signature, message } = req.body;
   
+  let authResult: any;
+  let isNewUser = false;
+  
   try {
-    const authResult = await honeycombService.authenticateUser(walletAddress, signature, message);
+    // First, try to authenticate with Honeycomb Protocol
+    authResult = await honeycombService.authenticateUser(walletAddress, signature, message);
+    console.log(`✅ User authenticated successfully: ${walletAddress}`);
     
+  } catch (error: any) {
+    console.log(`Authentication attempt failed: ${error.message}`);
+    
+    // If user not found, try to register them
+    if (error.code === 'USER_NOT_FOUND') {
+      console.log(`🔄 User not found, attempting registration: ${walletAddress}`);
+      
+      try {
+        authResult = await honeycombService.registerUser(walletAddress, signature);
+        isNewUser = true;
+        console.log(`✅ User registered and authenticated: ${walletAddress}`);
+        
+      } catch (registrationError: any) {
+        console.error(`❌ Registration failed: ${registrationError.message}`);
+        
+        // If both auth and registration fail, create local-only user
+        if (registrationError.code === 'REGISTRATION_FAILED') {
+          console.log(`📝 Creating local-only user: ${walletAddress}`);
+          authResult = {
+            user: {
+              id: `local_${walletAddress}_${Date.now()}`,
+              wallet: walletAddress,
+            },
+            accessToken: `local_token_${walletAddress.substring(0, 8)}_${Date.now()}`,
+          };
+          isNewUser = true;
+        } else {
+          throw registrationError;
+        }
+      }
+    } else {
+      // For other errors (network, invalid signature, etc.), don't attempt registration
+      throw error;
+    }
+  }
+  
+  try {
     // Create or update user in our local database
     let user = await prisma.user.findUnique({
       where: { walletAddress },
@@ -61,10 +103,13 @@ router.post('/auth/verify', [
 
     if (!user) {
       // Create new user with Honeycomb integration
+      const displayName = `Founder_${walletAddress.slice(-8)}`;
+      console.log(`📝 Creating new user in database: ${displayName}`);
+      
       user = await prisma.user.create({
         data: {
           walletAddress,
-          displayName: `Founder_${walletAddress.slice(-8)}`,
+          displayName,
           role: 'PLAYER',
           honeycombUserId: authResult.user.id,
           skillScores: {
@@ -159,8 +204,25 @@ router.post('/auth/verify', [
         },
       },
     });
-  } catch (error) {
-    throw new ApiError('Authentication failed', 401);
+  } catch (error: any) {
+    console.error('❌ Database or final processing error:', error);
+    
+    // Provide specific error messages based on the error type
+    if (error.code === 'USER_NOT_FOUND') {
+      throw new ApiError('User not found in Honeycomb Protocol. Please try again.', 404);
+    } else if (error.code === 'HONEYCOMB_GRAPHQL_ERROR') {
+      throw new ApiError(`Honeycomb API Error: ${error.message}`, 502);
+    } else if (error.code === 'HONEYCOMB_NETWORK_ERROR') {
+      throw new ApiError(`Honeycomb Network Error: ${error.message}`, 503);
+    } else if (error.code === 'REGISTRATION_FAILED') {
+      throw new ApiError('Failed to register user with Honeycomb Protocol', 500);
+    } else if (error.code && error.code.includes('DATABASE')) {
+      throw new ApiError('Database error during user creation', 500);
+    } else {
+      // Generic fallback with more context
+      const errorMessage = error.message || 'Authentication process failed';
+      throw new ApiError(`Authentication failed: ${errorMessage}`, 401);
+    }
   }
 }));
 

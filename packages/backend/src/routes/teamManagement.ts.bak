@@ -1,0 +1,719 @@
+import { Router, Response } from 'express';
+import { body, param, validationResult } from 'express-validator';
+import { AuthenticatedRequest, validateAuth } from '../middleware/auth';
+import { ApiError, asyncHandler } from '../middleware/errorHandler';
+import { teamDisputeResolutionService } from '../services/team/disputeResolution';
+import { prisma } from '../config/database';
+
+const router: any = Router();
+
+// All team management routes require authentication
+router.use(validateAuth as any);
+
+// ============================================================================
+// TEAM FORMATION & MANAGEMENT
+// ============================================================================
+
+// POST /api/team-management/create - Create a new team with comprehensive agreement
+router.post('/create', [
+  body('name').isString().isLength({ min: 2, max: 100 }).trim(),
+  body('description').isString().isLength({ min: 10, max: 500 }).trim(),
+  body('agreementType').isIn(['EQUAL_SPLIT', 'CONTRIBUTION_BASED', 'TIME_WEIGHTED', 'PERFORMANCE_BASED', 'CUSTOM']),
+  body('disputeResolution').isIn(['VOTING', 'ARBITRATION', 'SMART_CONTRACT', 'HYBRID']),
+  body('separationTriggers').isArray().optional(),
+  body('initialMembers').isArray().optional(),
+  body('equityDistribution').isObject().optional(),
+], asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError('Validation failed', 400, errors.array());
+  }
+
+  const userId = req.user!.id;
+  const {
+    name,
+    description,
+    agreementType,
+    disputeResolution,
+    separationTriggers,
+    initialMembers,
+    equityDistribution
+  } = req.body;
+
+  try {
+    // Check if user is already in a team
+    const existingMembership = await prisma.teamMember.findFirst({
+      where: { userId, status: 'ACTIVE' }
+    });
+
+    if (existingMembership) {
+      throw new ApiError('User is already a member of an active team', 400);
+    }
+
+    // Get agreement templates
+    const templates = await teamDisputeResolutionService.getAgreementTemplates();
+    const selectedTemplate = templates.find(t => t.type === agreementType);
+
+    if (!selectedTemplate) {
+      throw new ApiError('Invalid agreement type', 400);
+    }
+
+    // Create founder agreement first
+    const agreement = await prisma.founderAgreement.create({
+      data: {
+        version: 1,
+        agreementType: selectedTemplate.type,
+        terms: {
+          template: selectedTemplate,
+          customTerms: req.body.customTerms || {},
+          disputeResolution,
+          separationTriggers: separationTriggers || selectedTemplate.automaticTriggers
+        } as any,
+        status: 'ACTIVE',
+        signedAt: new Date()
+      }
+    });
+
+    // Create team
+    const team = await prisma.team.create({
+      data: {
+        name,
+        description,
+        agreementId: agreement.id,
+        isPublic: true,
+        maxMembers: req.body.maxMembers || 8,
+        foundedAt: new Date()
+      }
+    });
+
+    // Add founder as first member with founder role
+    const founderMembership = await prisma.teamMember.create({
+      data: {
+        teamId: team.id,
+        userId,
+        role: 'FOUNDER',
+        equity: equityDistribution?.[userId] || (100 / (initialMembers?.length + 1 || 1)),
+        joinedAt: new Date(),
+        status: 'ACTIVE',
+        permissions: {
+          canInvite: true,
+          canManageEquity: true,
+          canInitiateDisputes: true,
+          canProposeSeparation: true
+        } as any
+      }
+    });
+
+    // Send invitations to initial members if provided
+    const invitations = [];
+    if (initialMembers && Array.isArray(initialMembers)) {
+      for (const memberData of initialMembers) {
+        if (memberData.userId) {
+          const invitation = await prisma.teamInvitation.create({
+            data: {
+              teamId: team.id,
+              invitedUserId: memberData.userId,
+              invitedByUserId: userId,
+              proposedRole: memberData.role || 'DEVELOPER',
+              proposedEquity: equityDistribution?.[memberData.userId],
+              message: `Join our team: ${name}`,
+              status: 'PENDING',
+              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+            }
+          });
+          invitations.push(invitation);
+        }
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      data: {
+        team: {
+          ...team,
+          agreement: {
+            ...agreement,
+            template: selectedTemplate
+          }
+        },
+        membership: founderMembership,
+        invitations,
+        message: `Team "${name}" created successfully with ${selectedTemplate.name} agreement!`
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error creating team:', error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Failed to create team', 500);
+  }
+}));
+
+// GET /api/team-management/my-team - Get user's team with full details
+router.get('/my-team', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
+
+  try {
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId, status: 'ACTIVE' },
+      include: {
+        team: {
+          include: {
+            teamMembers: {
+              include: { user: { select: { id: true, displayName: true, avatarUrl: true } } }
+            },
+            agreement: true,
+            disputes: { where: { status: 'OPEN' } },
+            separations: { where: { status: 'PENDING_VOTES' } }
+          }
+        }
+      }
+    });
+
+    if (!membership) {
+      return res.json({
+        success: true,
+        data: { team: null, canJoinTeam: true }
+      });
+    }
+
+    // Calculate team assets
+    const teamAssets = await teamDisputeResolutionService.calculateTeamAssets(membership.teamId);
+
+    res.json({
+      success: true,
+      data: {
+        team: {
+          ...membership.team,
+          memberAssets: teamAssets.memberContributions,
+          totalAssets: {
+            xp: teamAssets.totalXP,
+            resources: teamAssets.totalResources,
+            tokens: teamAssets.totalTokens
+          }
+        },
+        membership,
+        canJoinTeam: false,
+        activeDisputes: membership.team.disputes.length,
+        pendingSeparations: membership.team.separations.length
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error getting team:', error);
+    throw new ApiError('Failed to get team information', 500);
+  }
+}));
+
+// ============================================================================
+// DISPUTE RESOLUTION
+// ============================================================================
+
+// POST /api/team-management/disputes/initiate - Initiate a dispute
+router.post('/disputes/initiate', [
+  body('disputeType').isIn(['RESOURCE_ALLOCATION', 'DECISION_MAKING', 'EQUITY_SPLIT', 'TEAM_SEPARATION', 'BREACH_OF_AGREEMENT']),
+  body('description').isString().isLength({ min: 10, max: 1000 }),
+  body('proposedResolution').isString().isLength({ min: 10, max: 1000 }),
+  body('affectedMembers').isArray(),
+  body('evidenceUrls').isArray().optional()
+], asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError('Validation failed', 400, errors.array());
+  }
+
+  const userId = req.user!.id;
+  const disputeData = {
+    teamId: '', // Will be filled from membership
+    initiatorId: userId,
+    disputeType: req.body.disputeType,
+    description: req.body.description,
+    proposedResolution: req.body.proposedResolution,
+    affectedMembers: req.body.affectedMembers,
+    evidenceUrls: req.body.evidenceUrls || []
+  };
+
+  try {
+    // Get user's team
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId, status: 'ACTIVE' },
+      include: { team: true }
+    });
+
+    if (!membership) {
+      throw new ApiError('User is not a member of any active team', 400);
+    }
+
+    disputeData.teamId = membership.teamId;
+
+    const result = await teamDisputeResolutionService.initiateDispute(disputeData);
+
+    if (!result.success) {
+      throw new ApiError(result.error || 'Failed to initiate dispute', 400);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        dispute: result.dispute,
+        nextSteps: result.nextSteps,
+        votingDeadline: result.dispute.votingDeadline,
+        message: `Dispute initiated successfully. Team members have been notified.`
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error initiating dispute:', error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Failed to initiate dispute', 500);
+  }
+}));
+
+// POST /api/team-management/disputes/:disputeId/vote - Vote on a dispute
+router.post('/disputes/:disputeId/vote', [
+  param('disputeId').isString(),
+  body('vote').isIn(['APPROVE', 'REJECT', 'ABSTAIN']),
+  body('comments').isString().optional()
+], asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError('Validation failed', 400, errors.array());
+  }
+
+  const userId = req.user!.id;
+  const { disputeId } = req.params;
+  const { vote, comments } = req.body;
+
+  try {
+    const result = await teamDisputeResolutionService.voteOnDispute(
+      disputeId,
+      userId,
+      vote,
+      comments
+    );
+
+    if (!result.success) {
+      throw new ApiError('Failed to record vote', 400);
+    }
+
+    let message = 'Vote recorded successfully';
+    if (result.disputeResolved) {
+      message = result.resolution.resolution === 'APPROVED' 
+        ? '✅ Dispute resolved - Resolution approved!'
+        : '❌ Dispute resolved - Resolution rejected';
+    }
+
+    res.json({
+      success: true,
+      data: {
+        voteRecorded: result.voteRecorded,
+        disputeResolved: result.disputeResolved,
+        resolution: result.resolution,
+        message
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error voting on dispute:', error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Failed to vote on dispute', 500);
+  }
+}));
+
+// GET /api/team-management/disputes - Get team disputes
+router.get('/disputes', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
+  const { status, page = 1, limit = 10 } = req.query;
+
+  try {
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId, status: 'ACTIVE' }
+    });
+
+    if (!membership) {
+      throw new ApiError('User is not a member of any active team', 400);
+    }
+
+    const where: any = { teamId: membership.teamId };
+    if (status) where.status = status;
+
+    const disputes = await prisma.teamDispute.findMany({
+      where,
+      include: {
+        initiator: { select: { id: true, displayName: true, avatarUrl: true } },
+        votes: {
+          include: {
+            user: { select: { id: true, displayName: true, avatarUrl: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Number(limit),
+      skip: (Number(page) - 1) * Number(limit)
+    });
+
+    const total = await prisma.teamDispute.count({ where });
+
+    res.json({
+      success: true,
+      data: {
+        disputes,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          pages: Math.ceil(total / Number(limit))
+        }
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error getting disputes:', error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Failed to get disputes', 500);
+  }
+}));
+
+// ============================================================================
+// TEAM SEPARATION
+// ============================================================================
+
+// POST /api/team-management/separation/propose - Propose team separation
+router.post('/separation/propose', [
+  body('separationType').isIn(['AMICABLE_SPLIT', 'CONTESTED_SPLIT', 'FOUNDER_EXIT', 'MEMBER_REMOVAL']),
+  body('assetDistribution').isObject(),
+  body('timeline').isInt({ min: 1, max: 90 }),
+  body('reason').isString().optional()
+], asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError('Validation failed', 400, errors.array());
+  }
+
+  const userId = req.user!.id;
+  const {
+    separationType,
+    assetDistribution,
+    timeline,
+    reason
+  } = req.body;
+
+  try {
+    // Get user's team
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId, status: 'ACTIVE' },
+      include: { team: { include: { teamMembers: true } } }
+    });
+
+    if (!membership) {
+      throw new ApiError('User is not a member of any active team', 400);
+    }
+
+    // Check permissions for separation
+    if (separationType === 'MEMBER_REMOVAL' && membership.role !== 'FOUNDER') {
+      throw new ApiError('Only founders can propose member removal', 403);
+    }
+
+    const separationData = {
+      teamId: membership.teamId,
+      proposedBy: userId,
+      separationType,
+      assetDistribution,
+      timeline,
+      votingDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      termsAcceptance: {} // Will be populated based on team members
+    };
+
+    // Initialize terms acceptance for all active members
+    for (const member of membership.team.teamMembers.filter(m => m.status === 'ACTIVE')) {
+      separationData.termsAcceptance[member.userId] = member.userId === userId; // Proposer auto-accepts
+    }
+
+    const result = await teamDisputeResolutionService.proposeSeparation(separationData);
+
+    if (!result.success) {
+      throw new ApiError('Failed to propose separation', 400);
+    }
+
+    let message = 'Separation proposal submitted';
+    if (result.autoApproved) {
+      message = '✅ Separation approved automatically and executed!';
+    } else if (result.votingRequired) {
+      message = '📊 Separation proposal created. Team voting is required.';
+    }
+
+    res.json({
+      success: true,
+      data: {
+        separationProposal: result.separationProposal,
+        votingRequired: result.votingRequired,
+        autoApproved: result.autoApproved,
+        message
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error proposing separation:', error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Failed to propose separation', 500);
+  }
+}));
+
+// POST /api/team-management/separation/:separationId/vote - Vote on separation
+router.post('/separation/:separationId/vote', [
+  param('separationId').isString(),
+  body('vote').isIn(['APPROVE', 'REJECT', 'ABSTAIN']),
+  body('comments').isString().optional()
+], asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError('Validation failed', 400, errors.array());
+  }
+
+  const userId = req.user!.id;
+  const { separationId } = req.params;
+  const { vote, comments } = req.body;
+
+  try {
+    // Verify user is team member
+    const separation = await prisma.teamSeparation.findUnique({
+      where: { id: separationId },
+      include: { team: { include: { teamMembers: true } } }
+    });
+
+    if (!separation) {
+      throw new ApiError('Separation proposal not found', 404);
+    }
+
+    const isTeamMember = separation.team.teamMembers.some(
+      m => m.userId === userId && m.status === 'ACTIVE'
+    );
+
+    if (!isTeamMember) {
+      throw new ApiError('User is not a member of this team', 403);
+    }
+
+    // Record vote
+    await prisma.separationVote.upsert({
+      where: {
+        separationId_userId: { separationId, userId }
+      },
+      create: {
+        separationId,
+        userId,
+        vote,
+        comments: comments || ''
+      },
+      update: {
+        vote,
+        comments: comments || '',
+        updatedAt: new Date()
+      }
+    });
+
+    // Check if all votes are in
+    const votes = await prisma.separationVote.findMany({
+      where: { separationId }
+    });
+
+    const activeMembers = separation.team.teamMembers.filter(m => m.status === 'ACTIVE');
+    const approvalVotes = votes.filter(v => v.vote === 'APPROVE').length;
+    const requiredVotes = Math.ceil(activeMembers.length * 0.66); // 2/3 majority
+
+    let separationExecuted = false;
+    let executionResults = null;
+
+    if (votes.length >= activeMembers.length) {
+      if (approvalVotes >= requiredVotes) {
+        // Execute separation
+        const result = await teamDisputeResolutionService.executeSeparation(separationId);
+        separationExecuted = result.success;
+        executionResults = result.executionResults;
+
+        // Update separation status
+        await prisma.teamSeparation.update({
+          where: { id: separationId },
+          data: { status: 'EXECUTED' }
+        });
+      } else {
+        // Reject separation
+        await prisma.teamSeparation.update({
+          where: { id: separationId },
+          data: { status: 'REJECTED' }
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        voteRecorded: true,
+        separationExecuted,
+        executionResults,
+        votesReceived: votes.length,
+        votesRequired: activeMembers.length,
+        approvalVotes,
+        requiredApprovals: requiredVotes,
+        message: separationExecuted 
+          ? '🎉 Separation executed successfully! Assets have been distributed.'
+          : 'Vote recorded. Waiting for more team member votes.'
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error voting on separation:', error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Failed to vote on separation', 500);
+  }
+}));
+
+// GET /api/team-management/separation/calculator - Calculate potential asset distribution
+router.post('/separation/calculator', [
+  body('separationType').isIn(['AMICABLE_SPLIT', 'CONTESTED_SPLIT', 'FOUNDER_EXIT', 'MEMBER_REMOVAL']),
+  body('agreementType').isIn(['EQUAL_SPLIT', 'CONTRIBUTION_BASED', 'TIME_WEIGHTED', 'PERFORMANCE_BASED']).optional()
+], asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
+  const { separationType, agreementType } = req.body;
+
+  try {
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId, status: 'ACTIVE' },
+      include: { team: { include: { agreement: true } } }
+    });
+
+    if (!membership) {
+      throw new ApiError('User is not a member of any active team', 400);
+    }
+
+    // Calculate team assets
+    const teamAssets = await teamDisputeResolutionService.calculateTeamAssets(membership.teamId);
+
+    // Get agreement templates
+    const templates = await teamDisputeResolutionService.getAgreementTemplates();
+    const activeAgreementType = agreementType || membership.team.agreement?.agreementType;
+    const template = templates.find(t => t.type === activeAgreementType);
+
+    // Calculate distribution based on agreement type
+    const memberDistribution: Record<string, any> = {};
+
+    for (const [memberId, contribution] of Object.entries(teamAssets.memberContributions)) {
+      let xpAllocation = 0;
+      let tokenAllocation = 0;
+      const resourceAllocation: Record<string, number> = {};
+
+      switch (activeAgreementType) {
+        case 'EQUAL_SPLIT':
+          const memberCount = Object.keys(teamAssets.memberContributions).length;
+          xpAllocation = Math.floor(teamAssets.totalXP / memberCount);
+          tokenAllocation = Math.floor(teamAssets.totalTokens / memberCount);
+          Object.entries(teamAssets.totalResources).forEach(([resourceType, amount]) => {
+            resourceAllocation[resourceType] = Math.floor(amount / memberCount);
+          });
+          break;
+
+        case 'CONTRIBUTION_BASED':
+          const totalPerformance = Object.values(teamAssets.memberContributions)
+            .reduce((sum: number, c: any) => sum + c.performanceScore, 0);
+          const userPerformance = (contribution as any).performanceScore;
+          const performanceRatio = userPerformance / totalPerformance;
+          
+          xpAllocation = Math.floor(teamAssets.totalXP * performanceRatio);
+          tokenAllocation = Math.floor(teamAssets.totalTokens * performanceRatio);
+          Object.entries(teamAssets.totalResources).forEach(([resourceType, amount]) => {
+            resourceAllocation[resourceType] = Math.floor(amount * performanceRatio);
+          });
+          break;
+
+        case 'TIME_WEIGHTED':
+          const totalTime = Object.values(teamAssets.memberContributions)
+            .reduce((sum: number, c: any) => sum + c.timeInTeam, 0);
+          const userTime = (contribution as any).timeInTeam;
+          const timeRatio = userTime / totalTime;
+          
+          xpAllocation = Math.floor(teamAssets.totalXP * timeRatio);
+          tokenAllocation = Math.floor(teamAssets.totalTokens * timeRatio);
+          Object.entries(teamAssets.totalResources).forEach(([resourceType, amount]) => {
+            resourceAllocation[resourceType] = Math.floor(amount * timeRatio);
+          });
+          break;
+
+        case 'PERFORMANCE_BASED':
+          // Similar to contribution-based but with different weighting
+          const totalMissions = Object.values(teamAssets.memberContributions)
+            .reduce((sum: number, c: any) => sum + c.missionsCompleted, 0);
+          const userMissions = (contribution as any).missionsCompleted;
+          const missionRatio = userMissions / (totalMissions || 1);
+          
+          xpAllocation = Math.floor(teamAssets.totalXP * missionRatio);
+          tokenAllocation = Math.floor(teamAssets.totalTokens * missionRatio);
+          Object.entries(teamAssets.totalResources).forEach(([resourceType, amount]) => {
+            resourceAllocation[resourceType] = Math.floor(amount * missionRatio);
+          });
+          break;
+      }
+
+      memberDistribution[memberId] = {
+        xp: xpAllocation,
+        tokens: tokenAllocation,
+        resources: resourceAllocation,
+        contribution: contribution as any
+      };
+    }
+
+    res.json({
+      success: true,
+      data: {
+        separationType,
+        agreementType: activeAgreementType,
+        template: template?.description,
+        teamAssets: {
+          totalXP: teamAssets.totalXP,
+          totalTokens: teamAssets.totalTokens,
+          totalResources: teamAssets.totalResources
+        },
+        memberDistribution,
+        formula: template ? {
+          xp: template.xpFormula,
+          resources: template.resourceFormula,
+          tokens: template.tokenFormula
+        } : null,
+        calculatedAt: new Date().toISOString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error calculating separation:', error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Failed to calculate asset distribution', 500);
+  }
+}));
+
+// ============================================================================
+// AGREEMENT TEMPLATES
+// ============================================================================
+
+// GET /api/team-management/agreement-templates - Get available agreement templates
+router.get('/agreement-templates', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const templates = await teamDisputeResolutionService.getAgreementTemplates();
+
+    res.json({
+      success: true,
+      data: {
+        templates,
+        recommendations: {
+          newTeams: 'EQUAL_SPLIT',
+          experiencedTeams: 'CONTRIBUTION_BASED',
+          longTermTeams: 'TIME_WEIGHTED',
+          competitiveTeams: 'PERFORMANCE_BASED'
+        }
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error getting agreement templates:', error);
+    throw new ApiError('Failed to get agreement templates', 500);
+  }
+}));
+
+export default router;

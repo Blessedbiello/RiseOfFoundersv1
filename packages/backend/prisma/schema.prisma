@@ -69,6 +69,18 @@ model User {
   nodeProgress    NodeProgress[]
   territories     Territory[] @relation("UserTerritories")
   
+  // Character System
+  character       FounderCharacter?
+  resourceInventory UserResourceInventory[]
+  craftingJobs    CraftingJob[]
+  
+  // Dispute resolution
+  initiatedDisputes     TeamDispute[] @relation("DisputeInitiator")
+  disputeVotes          DisputeVote[] @relation("DisputeVotes")
+  proposedSeparations   TeamSeparation[] @relation("SeparationProposer")
+  separationVotes       SeparationVote[] @relation("SeparationVotes")
+  tokenTransactions     TokenTransaction[] @relation("TokenTransactions")
+  
   // System
   auditLogs       AuditLog[]
   notifications   Notification[]
@@ -125,6 +137,8 @@ model Team {
   quests        TeamQuest[]
   menteeTeamSessions MentorSession[] @relation("MenteeTeamSessions")
   questSubmissions QuestSubmission[] @relation("TeamQuestSubmissions")
+  disputes      TeamDispute[]
+  separations   TeamSeparation[]
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -779,6 +793,110 @@ model Territory {
   @@map("territories")
 }
 
+// Team dispute resolution models
+model TeamDispute {
+  id                String   @id @default(cuid())
+  teamId            String
+  initiatorId       String
+  disputeType       DisputeType
+  description       String
+  proposedResolution String
+  status            DisputeStatus @default(OPEN)
+  evidenceUrls      String[]
+  affectedMembers   String[]
+  votingDeadline    DateTime
+  resolvedAt        DateTime?
+  resolutionDetails Json?
+  
+  // Relationships
+  team              Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  initiator         User @relation("DisputeInitiator", fields: [initiatorId], references: [id])
+  votes             DisputeVote[]
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@map("team_disputes")
+}
+
+model DisputeVote {
+  id        String @id @default(cuid())
+  disputeId String
+  userId    String
+  vote      VoteType
+  comments  String?
+  
+  // Relationships
+  dispute   TeamDispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  user      User @relation("DisputeVotes", fields: [userId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([disputeId, userId])
+  @@map("dispute_votes")
+}
+
+model TeamSeparation {
+  id                String   @id @default(cuid())
+  teamId            String
+  proposedBy        String
+  separationType    SeparationType
+  assetDistribution Json // Contains XP, resources, tokens allocation
+  timeline          Int // Days to complete
+  status            SeparationStatus @default(PENDING_VOTES)
+  votingDeadline    DateTime
+  termsAcceptance   Json // userId -> boolean mapping
+  executedAt        DateTime?
+  executionResults  Json?
+  
+  // Relationships
+  team              Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  proposer          User @relation("SeparationProposer", fields: [proposedBy], references: [id])
+  votes             SeparationVote[]
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@map("team_separations")
+}
+
+model SeparationVote {
+  id           String @id @default(cuid())
+  separationId String
+  userId       String
+  vote         VoteType
+  comments     String?
+  
+  // Relationships
+  separation   TeamSeparation @relation(fields: [separationId], references: [id], onDelete: Cascade)
+  user         User @relation("SeparationVotes", fields: [userId], references: [id])
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@unique([separationId, userId])
+  @@map("separation_votes")
+}
+
+model TokenTransaction {
+  id          String @id @default(cuid())
+  userId      String
+  amount      Decimal @db.Decimal(18, 8)
+  type        TokenTransactionType
+  status      TransactionStatus @default(PENDING)
+  txHash      String?
+  metadata    Json @default("{}")
+  
+  // Relationships
+  user        User @relation("TokenTransactions", fields: [userId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("token_transactions")
+}
+
 model TeamQuest {
   id              String   @id @default(cuid())
   teamId          String
@@ -970,6 +1088,60 @@ enum ExperienceLevel {
   EXPERT
 }
 
+enum DisputeType {
+  RESOURCE_ALLOCATION
+  DECISION_MAKING
+  EQUITY_SPLIT
+  TEAM_SEPARATION
+  BREACH_OF_AGREEMENT
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum VoteType {
+  APPROVE
+  REJECT
+  ABSTAIN
+}
+
+enum SeparationType {
+  AMICABLE_SPLIT
+  CONTESTED_SPLIT
+  FOUNDER_EXIT
+  MEMBER_REMOVAL
+}
+
+enum SeparationStatus {
+  PENDING_VOTES
+  APPROVED
+  REJECTED
+  EXECUTED
+  CANCELLED
+}
+
+enum TokenTransactionType {
+  TEAM_SEPARATION_DISTRIBUTION
+  DISPUTE_RESOLUTION_PAYOUT
+  PERFORMANCE_BONUS
+  PENALTY_DEDUCTION
+  TRADE
+  STAKE
+  UNSTAKE
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  CANCELLED
+}
+
 enum Currency {
   USD
   USDC
@@ -1019,4 +1191,393 @@ enum NotificationType {
   LEVEL_UP
   BADGE_EARNED
   TERRITORY_LOST
+  CHARACTER_EVOLUTION
+  RESOURCE_EARNED
+  CRAFTING_COMPLETE
+  STAKING_REWARD
+}
+
+// New enums for Character System
+enum Kingdom {
+  SILICON_VALLEY
+  CRYPTO_VALLEY
+  BUSINESS_STRATEGY
+  PRODUCT_OLYMPUS
+  MARKETING_MULTIVERSE
+  ALL_KINGDOMS
+}
+
+enum CharacterClass {
+  TECH_FOUNDER
+  CRYPTO_FOUNDER
+  BUSINESS_STRATEGIST
+  PRODUCT_VISIONARY
+  MARKETING_MAVERICK
+  RENAISSANCE_FOUNDER
+}
+
+enum CharacterLevel {
+  NOVICE          // Level 1-10
+  APPRENTICE      // Level 11-25
+  PRACTITIONER    // Level 26-40
+  EXPERT          // Level 41-60
+  MASTER          // Level 61-80
+  GRANDMASTER     // Level 81-100
+  LEGEND          // Level 100+
+}
+
+enum ResourceType {
+  CODE_POINTS
+  BUSINESS_ACUMEN
+  MARKETING_INFLUENCE
+  NETWORK_CONNECTIONS
+  FUNDING_TOKENS
+  DESIGN_CREATIVITY
+  PRODUCT_VISION
+}
+
+enum EquipmentType {
+  DEVELOPMENT_TOOLS
+  BUSINESS_ARTIFACTS
+  MARKETING_ASSETS
+  NETWORK_TOOLS
+  FUNDING_INSTRUMENTS
+}
+
+enum EquipmentRarity {
+  COMMON
+  UNCOMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+enum StakingPoolType {
+  TERRITORY_CONTROL
+  CHARACTER_DEVELOPMENT
+  GUILD_TREASURY
+  RESOURCE_GENERATION
+}
+
+// Character System Models
+model FounderCharacter {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  honeycombCharacterId  String   @unique
+  
+  // Character Identity
+  name                  String
+  kingdom               Kingdom
+  characterClass        CharacterClass
+  level                 Int      @default(1)
+  experience            Int      @default(0)
+  experienceToNext      Int      @default(100)
+  
+  // Core Stats (0-1000 scale)
+  technical             Int      @default(0)
+  business              Int      @default(0)
+  marketing             Int      @default(0)
+  community             Int      @default(0)
+  design                Int      @default(0)
+  product               Int      @default(0)
+  
+  // Character Progression
+  totalMissionsCompleted Int     @default(0)
+  territoriesControlled  Int     @default(0)
+  teamSize              Int      @default(1)
+  reputationScore       Int      @default(0)
+  
+  // Visual Customization
+  avatarUrl             String?
+  kingdomEmblem         String?
+  characterTheme        Json     @default("{}")
+  
+  // Game Mechanics
+  isStaked              Boolean  @default(false)
+  stakedUntil           DateTime?
+  lastActiveBonus       DateTime @default(now())
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relationships
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equipment             CharacterEquipment[]
+  evolutions            CharacterEvolution[]
+  stakingRecords        CharacterStake[]
+  resourceInventory     UserResourceInventory[]
+  
+  @@map("founder_characters")
+}
+
+model CharacterEquipment {
+  id                String   @id @default(cuid())
+  characterId       String
+  
+  // Equipment Details
+  name              String
+  type              EquipmentType
+  rarity            EquipmentRarity
+  description       String
+  
+  // Equipment Effects
+  statBoosts        Json     @default("{}")
+  specialAbilities  Json     @default("[]")
+  
+  // Equipment State
+  isEquipped        Boolean  @default(false)
+  durability        Int      @default(100)
+  level             Int      @default(1)
+  
+  // Acquisition
+  acquiredFrom      String   // Mission, crafting, trade, etc.
+  acquiredAt        DateTime @default(now())
+  
+  // NFT Integration
+  nftMintAddress    String?
+  nftMetadata       Json?
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relationships
+  character         FounderCharacter @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  
+  @@map("character_equipment")
+}
+
+model CharacterEvolution {
+  id                String   @id @default(cuid())
+  characterId       String
+  
+  // Evolution Details
+  fromLevel         Int
+  toLevel           Int
+  evolutionType     String   // LEVEL_UP, SKILL_UNLOCK, CLASS_EVOLUTION
+  
+  // Stat Changes
+  statChanges       Json     @default("{}")
+  newAbilities      Json     @default("[]")
+  
+  // Evolution Trigger
+  triggerType       String   // MISSION_COMPLETE, XP_THRESHOLD, SPECIAL_EVENT
+  triggerData       Json     @default("{}")
+  
+  // Honeycomb Integration
+  honeycombTxHash   String?
+  onChainVerified   Boolean  @default(false)
+  
+  // Metadata
+  evolvedAt         DateTime @default(now())
+  
+  // Relationships
+  character         FounderCharacter @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  
+  @@map("character_evolutions")
+}
+
+model UserResourceInventory {
+  id                String   @id @default(cuid())
+  userId            String
+  characterId       String?
+  
+  // Resource Details
+  resourceType      ResourceType
+  amount            Int      @default(0)
+  totalEarned       Int      @default(0)
+  totalSpent        Int      @default(0)
+  
+  // Resource State
+  isLocked          Boolean  @default(false)
+  lockedAmount      Int      @default(0)
+  lastEarned        DateTime?
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relationships
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character         FounderCharacter? @relation(fields: [characterId], references: [id])
+  transactions      ResourceTransaction[]
+  
+  @@unique([userId, resourceType])
+  @@map("user_resource_inventory")
+}
+
+model ResourceTransaction {
+  id                String   @id @default(cuid())
+  inventoryId       String
+  
+  // Transaction Details
+  type              String   // EARNED, SPENT, TRADED, STAKED
+  amount            Int
+  description       String
+  
+  // Transaction Source
+  sourceType        String   // MISSION, CRAFTING, TRADE, STAKING
+  sourceId          String?
+  
+  // Transaction Context
+  missionId         String?
+  craftingId        String?
+  tradeId           String?
+  stakingId         String?
+  
+  // Honeycomb Integration
+  honeycombTxHash   String?
+  onChainVerified   Boolean  @default(false)
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  
+  // Relationships
+  inventory         UserResourceInventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  
+  @@map("resource_transactions")
+}
+
+model CraftingRecipe {
+  id                String   @id @default(cuid())
+  
+  // Recipe Details
+  name              String   @unique
+  description       String
+  category          String   // MVP, PITCH_DECK, BUSINESS_PLAN, etc.
+  
+  // Requirements
+  requiredResources Json     // { "CODE_POINTS": 100, "BUSINESS_ACUMEN": 50 }
+  requiredLevel     Int      @default(1)
+  requiredKingdom   Kingdom?
+  
+  // Output
+  resultType        String   // EQUIPMENT, CONSUMABLE, UPGRADE
+  resultMetadata    Json     @default("{}")
+  
+  // Crafting Mechanics
+  craftingTime      Int      @default(0) // seconds
+  successRate       Float    @default(1.0)
+  maxAttempts       Int?
+  
+  // Availability
+  isActive          Boolean  @default(true)
+  unlockConditions  Json     @default("{}")
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relationships
+  craftingJobs      CraftingJob[]
+  
+  @@map("crafting_recipes")
+}
+
+model CraftingJob {
+  id                String   @id @default(cuid())
+  userId            String
+  recipeId          String
+  
+  // Job Status
+  status            String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, FAILED, CANCELLED
+  startedAt         DateTime @default(now())
+  completedAt       DateTime?
+  
+  // Job Details
+  resourcesSpent    Json     @default("{}")
+  resultReceived    Json?
+  
+  // Progress
+  progressPercent   Int      @default(0)
+  currentStep       String?
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relationships
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe            CraftingRecipe @relation(fields: [recipeId], references: [id])
+  
+  @@map("crafting_jobs")
+}
+
+model StakingPool {
+  id                String   @id @default(cuid())
+  
+  // Pool Identity
+  name              String   @unique
+  description       String
+  poolType          StakingPoolType
+  
+  // Staking Mechanics
+  stakingAsset      String   // CHARACTERS, RESOURCES, TERRITORIES
+  rewardAsset       String   // XP, RESOURCES, TOKENS
+  
+  // Pool Parameters
+  minimumStake      Int      @default(1)
+  stakingPeriod     Int      @default(86400) // seconds
+  rewardRate        Float    @default(0.1)   // 10% annual
+  compoundingRate   String   @default("DAILY")
+  
+  // Pool Limits
+  maxStakers        Int?
+  maxTotalStaked    Int?
+  
+  // Pool State
+  isActive          Boolean  @default(true)
+  totalStaked       Int      @default(0)
+  totalStakers      Int      @default(0)
+  totalRewardsPaid  Int      @default(0)
+  
+  // Pool Lifecycle
+  startDate         DateTime @default(now())
+  endDate           DateTime?
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relationships
+  stakes            CharacterStake[]
+  
+  @@map("staking_pools")
+}
+
+model CharacterStake {
+  id                String   @id @default(cuid())
+  poolId            String
+  characterId       String
+  
+  // Stake Details
+  amountStaked      Int
+  stakedAt          DateTime @default(now())
+  unlockAt          DateTime
+  
+  // Reward Tracking
+  rewardsEarned     Int      @default(0)
+  lastRewardClaim   DateTime?
+  compoundedRewards Int      @default(0)
+  
+  // Stake State
+  isActive          Boolean  @default(true)
+  isUnstaked        Boolean  @default(false)
+  unstakedAt        DateTime?
+  
+  // Honeycomb Integration
+  honeycombStakeId  String?
+  onChainVerified   Boolean  @default(false)
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relationships
+  pool              StakingPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  character         FounderCharacter @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  
+  @@unique([poolId, characterId])
+  @@map("character_stakes")
 }

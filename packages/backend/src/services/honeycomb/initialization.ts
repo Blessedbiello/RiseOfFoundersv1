@@ -50,8 +50,13 @@ class HoneycombInitializationService {
     try {
       console.log('🍯 Starting Honeycomb Protocol initialization for Rise of Founders...');
 
-      // Step 1: Initialize the base Honeycomb service
-      await honeycombService.initialize();
+      // Step 1: Initialize the base Honeycomb service with timeout
+      await Promise.race([
+        honeycombService.initialize(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Honeycomb initialization timeout')), 15000)
+        )
+      ]);
       console.log('✅ Honeycomb client initialized');
 
       // Step 2: Create or verify project exists

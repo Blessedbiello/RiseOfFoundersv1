@@ -458,6 +458,7 @@ export const TeamCreation: React.FC<TeamCreationProps> = ({
               variant="outline"
               onClick={currentStep === 'details' ? onCancel : handlePrevious}
               disabled={isCreating}
+              className="border-white/30 text-white hover:bg-white/10 hover:text-white font-medium"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
               {currentStep === 'details' ? 'Cancel' : 'Previous'}
@@ -486,6 +487,7 @@ export const TeamCreation: React.FC<TeamCreationProps> = ({
                 <Button
                   onClick={handleNext}
                   disabled={!canProceed()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-medium"
                 >
                   Continue
                   <ArrowRight className="w-4 h-4 ml-2" />

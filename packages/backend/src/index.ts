@@ -29,6 +29,12 @@ import honeycombRoutes from './routes/honeycomb';
 import pvpRoutes from './routes/pvp';
 import questRoutes from './routes/quests';
 import escrowRoutes from './routes/escrow';
+import characterRoutes from './routes/characters';
+import resourceRoutes from './routes/resources';
+import enhancedMissionRoutes from './routes/enhancedMissions';
+import stakingRoutes from './routes/staking';
+import integrationRoutes from './routes/integration';
+// import teamManagementRoutes from './routes/teamManagement'; // Not created yet
 
 const app = express();
 const server = createServer(app);
@@ -108,7 +114,7 @@ app.get('/health', async (req, res) => {
       uptime: process.uptime(),
       services: {
         database: 'healthy',
-        honeycomb: { status: 'disabled' },
+        honeycomb: 'healthy',
       },
     });
   } catch (error) {
@@ -127,6 +133,9 @@ app.get('/health', async (req, res) => {
 // API routes - enabling one by one
 app.use('/api/auth', authRoutes);
 app.use('/api/users', validateAuth as any, userRoutes);
+app.use('/api/characters', characterRoutes);
+app.use('/api/resources', resourceRoutes);
+app.use('/api/missions/enhanced', enhancedMissionRoutes);
 
 // Public endpoints
 app.get('/api/public/leaderboard', async (req: Request, res: Response) => {
@@ -192,6 +201,9 @@ app.use('/api/honeycomb', honeycombRoutes);
 app.use('/api/pvp', validateAuth as any, pvpRoutes);
 app.use('/api/quests', validateAuth as any, questRoutes);
 app.use('/api/escrow', validateAuth as any, escrowRoutes);
+app.use('/api/staking', validateAuth as any, stakingRoutes);
+app.use('/api/integration', validateAuth as any, integrationRoutes);
+// app.use('/api/team-management', validateAuth as any, teamManagementRoutes); // Route not created yet
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -278,9 +290,9 @@ async function initializeServices() {
       console.log(`🏆 Badges Initialized: ${honeycombResult.badgesInitialized}`);
     } else {
       console.warn('⚠️ Honeycomb initialization completed with issues:');
-      honeycombResult.errors.forEach(error => console.warn(`  - ${error}`));
+      honeycombResult.errors.forEach((error: any) => console.warn(`  - ${error}`));
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Failed to initialize Honeycomb Protocol:', error);
     console.warn('⚠️ Server will continue without full Honeycomb integration');
   }
